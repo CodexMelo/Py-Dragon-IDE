@@ -4,18 +4,14 @@ import sys
 
 # Forçar UTF-8 no Windows
 if os.name == 'nt':
-    if sys.stdout is not None:
-        sys.stdout.reconfigure(encoding='utf-8')
-    if sys.stderr is not None:
-        sys.stderr.reconfigure(encoding='utf-8')
+    sys.stdout.reconfigure(encoding='utf-8')
+    sys.stderr.reconfigure(encoding='utf-8')
 
     # Configurar environment para UTF-8
     os.environ['PYTHONUTF8'] = '1'
     os.environ['PYTHONIOENCODING'] = 'utf-8'
 import ast
 import glob
-
-
 
 # ===== IMPORTS ADICIONAIS =====
 import importlib
@@ -58,7 +54,7 @@ from PySide6.QtCore import (
     QThread,
     QTimer,
     QUrl,
-    Signal as QSignal
+    Signal,
 )
 from PySide6.QtGui import (
     QAction,
@@ -74,7 +70,7 @@ from PySide6.QtGui import (
     QTextBlockUserData,
     QTextCharFormat,
     QTextCursor,
-    QTextOption, QKeySequence
+    QTextOption,
 )
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import (
@@ -114,6 +110,12 @@ from PySide6.QtWidgets import QVBoxLayout
 from PySide6.QtWidgets import QVBoxLayout as QVBoxLayoutDialog
 from PySide6.QtWidgets import QWidget
 
+
+# Gerenciador de cache de módulos (singleton)
+
+# Reservado para po PLugins
+
+# ===== SISTEMA DE PLUGINS =====
 
 @dataclass
 class PluginInfo:
@@ -3031,7 +3033,7 @@ module_cache_manager = ModuleCacheManager()
 
 # ===== WORKERS EM BACKGROUND =====
 class LinterWorker(QThread):
-    finished = QSignal(dict, list)  # errors, messages  # <- Mudança aqui: Signal -> QSignal
+    finished = Signal(dict, list)  # errors, messages
 
     def __init__(self, file_path, python_exec, project_path):
         super().__init__()
@@ -3052,7 +3054,8 @@ class LinterWorker(QThread):
         lint_messages = []
 
         try:
-            # Try pylint first with corrected enables
+            # Try pylint first with corrected
+            # enables
             pylint_cmd = [
                 self.python_exec, '-m', 'pylint',
                 '--output-format=json',
@@ -3062,7 +3065,8 @@ class LinterWorker(QThread):
                 self.file_path
             ]
 
-            cwd = self.project_path if self.project_path else os.path.dirname(self.file_path)
+            cwd = self.project_path if self.project_path else os.path.dirname(
+                self.file_path)
             result = subprocess.run(
                 pylint_cmd,
                 capture_output=True,
@@ -3072,7 +3076,8 @@ class LinterWorker(QThread):
                 timeout=5
             )
 
-            if result.returncode in [0, 1, 2, 4, 8, 16, 32] and result.stdout.strip():
+            if result.returncode in [
+                0, 1, 2, 4, 8, 16, 32] and result.stdout.strip():
                 try:
                     lines = result.stdout.strip().split('\n')
                     for line in lines:
@@ -3080,22 +3085,30 @@ class LinterWorker(QThread):
                             return
                         if line.strip():
                             try:
-                                issue = json.loads(line.strip())
-                                if 'line' in issue and issue['line'] > 0:
-                                    line_num = issue['line'] - 1
-                                    msg = issue.get('message', 'No message')
-                                    symbol = issue.get('symbol', 'unknown')
-                                    msg_type = issue.get('type', 'warning')
+                                issue = json.loads(
+                                    line.strip())
+                                if 'line' in issue and issue[
+                                    'line'] > 0:
+                                    line_num = issue[
+                                                   'line'] - 1
+                                    msg = issue.get(
+                                        'message', 'No message')
+                                    symbol = issue.get(
+                                        'symbol', 'unknown')
+                                    msg_type = issue.get(
+                                        'type', 'warning')
                                     error_type = 'error' if msg_type == 'error' else 'warning'
 
                                     if line_num not in errors:
-                                        errors[line_num] = []
+                                        errors[line_num] = [
+                                        ]
                                     errors[line_num].append({
                                         'type': error_type,
                                         'msg': msg,
                                         'symbol': symbol
                                     })
-                                    lint_messages.append(f"Line {issue['line']}: {msg} ({symbol})")
+                                    lint_messages.append(
+                                        f"Line {issue['line']}: {msg} ({symbol})")
                             except json.JSONDecodeError:
                                 continue
                 except json.JSONDecodeError:
@@ -3105,399 +3118,354 @@ class LinterWorker(QThread):
             pass
 
         if self._is_running:
-            self.finished.emit(errors, lint_messages)
+            self.finished.emit(
+                errors, lint_messages)
 
-    # ===== SETUP DO AUTOCOMPLETE =====
-    # Worker para autocomplete (inicia se Jedi disponível)
 
 class AutoCompleteWorker(QThread):
-    suggestion_ready = QSignal(str, list)  # Emite sugestões
+    finished = Signal(list)  # suggestions
+    progress = Signal(str)  # progress update
 
-    def __init__(self, ide):
+    def __init__(
+            self,
+            text,
+            cursor_position,
+            file_path,
+            project_path,
+            selected_text=""):
         super().__init__()
-        self.ide = ide
-        self.running = True
-
-    def run(self):
-        while self.running:
-            if hasattr(self.ide, 'current_editor') and self.ide.current_editor and JEDI_AVAILABLE:
-                # Usa Jedi para sugestões
-                try:
-                    source = self.ide.current_editor.toPlainText()
-                    script = jedi.Script(source)
-                    completions = script.complete(len(source) - 1)  # Corrige posição
-                    suggestions = [comp.name for comp in completions[:10]]  # Top 10
-                    self.suggestion_ready.emit(getattr(self.ide, 'current_file', ''), suggestions)
-                except Exception as e:
-                    print(f"❌ Erro Jedi: {e}")
-                    self.suggestion_ready.emit(getattr(self.ide, 'current_file', ''), [])
-            else:
-                # Fallback básico (palavras comuns Python)
-                fallback = ['print', 'len', 'str', 'int', 'list', 'dict', 'os', 'sys']
-                self.suggestion_ready.emit(getattr(self.ide, 'current_file', ''), fallback)
-            self.msleep(500)  # Checa a cada 500ms
+        self.text = text
+        self.cursor_position = cursor_position
+        self.file_path = file_path
+        self.project_path = project_path
+        self.completer = HybridCompleter()  # ✅ Agora usa Jedi + análise própria
+        self._is_running = True
 
     def stop(self):
-        self.running = False
-        self.quit()
-        self.wait(1000)
+        self._is_running = False
+        self.terminate()
 
+    def run(self):
+        if not self._is_running:
+            return
 
-# Métodos da classe IDE para autocomplete
-def setup_autocomplete(self):
-    """Configura o sistema de autocomplete na IDE"""
-    # Worker para autocomplete (inicia se Jedi disponível)
-    self.auto_complete_worker = AutoCompleteWorker(self)
-    self.auto_complete_worker.suggestion_ready.connect(self.show_completions)
-    self.auto_complete_worker.start()
+        try:
+            self.progress.emit(
+                "🔍 Analisando código...")
+            suggestions = self.get_enhanced_suggestions()
 
-    # Shortcut para autocomplete (Ctrl+Space)
-    self.autocomplete_shortcut = QShortcut(QKeySequence("Ctrl+Space"), self)
-    self.autocomplete_shortcut.activated.connect(self.trigger_autocomplete)
+            if self._is_running:
+                self.progress.emit(
+                    "✅ Sugestões carregadas!")
+                self.finished.emit(
+                    suggestions)
 
-    # Lista para mostrar sugestões (dock simples à direita)
-    self.completion_list = QListWidget()
-    self.completion_list.setVisible(False)
-    self.completion_list.itemDoubleClicked.connect(self.insert_completion)
-    
-    self.completion_dock = QDockWidget("Completions", self)
-    self.completion_dock.setWidget(self.completion_list)
-    self.addDockWidget(Qt.RightDockWidgetArea, self.completion_dock)
-    
-    # Variáveis para controle do autocomplete
-    self.last_suggestions = []
-    self.current_completions = []
+        except Exception as e:
+            if self._is_running:
+                self.progress.emit(
+                    f"❌ Erro: {str(e)}")
+                self.finished.emit([])
 
+    def get_enhanced_suggestions(self):
+        """Usa sistema híbrido Jedi + análise própria"""
+        return self.completer.get_completions(
+            self.text,
+            self.cursor_position,
+            self.file_path,
+            self.project_path
+        )
 
-def insert_completion(self, item):
-    """Insere a sugestão selecionada no editor"""
-    if hasattr(self, 'current_editor') and self.current_editor:
-        completion_text = item.text()
-        cursor = self.current_editor.textCursor()
-        cursor.insertText(completion_text)
-        self.completion_list.setVisible(False)
+    def get_fallback_suggestions(self):
+        """Fallback caso o novo sistema falhe"""
+        suggestions = set()
 
+        # Sugestões básicas
+        keywords = [
+            "if", "else", "for", "while", "def", "class", "import"]
+        suggestions.update(keywords)
 
-def show_completions(self, file_path, suggestions):
-    """Mostra lista de sugestões"""
-    if not suggestions or not hasattr(self, 'current_editor') or not self.current_editor:
-        self.completion_list.setVisible(False)
-        return
-    
-    # Filtra sugestões duplicadas
-    unique_suggestions = []
-    seen = set()
-    for sug in suggestions:
-        if sug not in seen:
-            unique_suggestions.append(sug)
-            seen.add(sug)
-    
-    self.last_suggestions = unique_suggestions[:10]  # Limita a 10 sugestões
-    self.completion_list.clear()
-    
-    for sug in self.last_suggestions:
-        self.completion_list.addItem(sug)
-    
-    # Posiciona o dock perto do cursor
-    if self.completion_list.count() > 0:
-        self.completion_list.setVisible(True)
-        self.completion_dock.raise_()
-        self.completion_list.setFocus()
+        # Tenta análise simples com regex
+        functions = re.findall(
+            r'def\s+([a-zA-Z_][a-zA-Z0-9_]*)', self.text)
+        suggestions.update([f"{f}()" for f in functions])
 
+        return sorted(list(suggestions))[:15]
 
-def trigger_autocomplete(self):
-    """Dispara autocomplete manual"""
-    if hasattr(self, 'current_editor') and self.current_editor:
-        # Força uma atualização imediata das sugestões
-        self.auto_complete_worker.run()
-        
-        # Mostra as sugestões mais recentes
-        if self.last_suggestions:
-            self.completion_list.clear()
-            for sug in self.last_suggestions:
-                self.completion_list.addItem(sug)
-            self.completion_list.setVisible(True)
-            self.completion_dock.raise_()
+    def analyze_context(self, text_before_cursor, current_line):
+        """Analisa o contexto atual - NOVO MÉTODO"""
+        context = {'type': 'general'}
 
+        # Verifica se está em import
+        if 'import' in current_line:
+            if 'from' in current_line:
+                # from module import ...
+                parts = current_line.split(
+                    'import')
+                if len(parts) > 1:
+                    module_part = parts[0].replace(
+                        'from', '').strip()
+                    context = {
+                        'type': 'from_import', 'module': module_part}
+            else:
+                # import module
+                context = {
+                    'type': 'import'}
 
-def get_enhanced_suggestions(self):
-    """Usa sistema híbrido Jedi + análise própria"""
-    return self.completer.get_completions(
-        self.text,
-        self.cursor_position,
-        self.file_path,
-        self.project_path
-    )
+        # Verifica se está acessando atributo (obj.)
+        elif current_line.strip().endswith('.'):
+            parts = current_line.split('.')
+            if len(parts) >= 2:
+                # Última palavra antes
+                # do ponto
+                obj_name = parts[-2].split()[-1]
+                context = {
+                    'type': 'attribute', 'object': obj_name}
 
+        # Verifica se está em chamada de função
+        elif '(' in current_line and not current_line.strip().endswith('('):
+            context = {'type': 'function_call'}
 
-def get_fallback_suggestions(self):
-    """Fallback caso o novo sistema falhe"""
-    suggestions = set()
+        return context
 
-    # Sugestões básicas
-    keywords = [
-        "if", "else", "for", "while", "def", "class", "import"]
-    suggestions.update(keywords)
+    def get_import_suggestions(self):
+        """Sugestões para imports - APRIMORADO"""
+        common_modules = [
+            'os', 'sys', 'json', 're', 'datetime', 'math', 'random',
+            'subprocess', 'shutil', 'glob', 'ast', 'inspect', 'importlib',
+            'platform', 'time', 'pathlib', 'collections', 'itertools', 'functools',
+            'typing', 'logging', 'unittest', 'pytest', 'numpy', 'pandas',
+            'matplotlib', 'seaborn', 'tkinter', 'PySide6', 'threading', 'multiprocessing'
+        ]
+        return common_modules
 
-    # Tenta análise simples com regex
-    functions = re.findall(
-        r'def\s+([a-zA-Z_][a-zA-Z0-9_]*)', self.text)
-    suggestions.update([f"{f}()" for f in functions])
+    def get_from_import_suggestions(self, module_name):
+        """Sugestões para from module import - APRIMORADO COM HARDCODED"""
+        suggestions = set()
 
-    return sorted(list(suggestions))[:15]
+        # HARDCODED para stdlib comuns (funciona sem import
+        # falhar)
+        hardcoded_stdlib = {
+            'tkinter': ['Tk', 'Button', 'Label', 'Entry', 'Canvas', 'Frame', 'filedialog', 'messagebox', 'simpledialog',
+                        'colorchooser', 'commondialog', 'Toplevel', 'Menu', 'Checkbutton', 'Radiobutton', 'Scale',
+                        'Scrollbar', 'Listbox', 'Text', 'Spinbox'],
+            'threading': ['Thread', 'Lock', 'RLock', 'Condition', 'Semaphore', 'BoundedSemaphore', 'Event', 'Timer',
+                          'Barrier', 'BrokenBarrierError', 'current_thread', 'main_thread', 'active_count', 'enumerate',
+                          'settrace', 'setprofile'],
+            'subprocess': ['Popen', 'PIPE', 'STDOUT', 'call', 'check_call', 'check_output', 'run', 'CalledProcessError',
+                           'TimeoutExpired', 'CompletedProcess', 'DEVNULL'],
+            'os': ['path', 'environ', 'getcwd', 'listdir', 'mkdir', 'remove', 'rename', 'system', 'walk', 'chdir',
+                   'getenv', 'makedirs', 'rmdir', 'scandir'],
+            'sys': ['argv', 'path', 'exit', 'version', 'platform', 'modules', 'executable', 'stdin', 'stdout', 'stderr',
+                    'gettrace', 'settrace'],
+            'json': ['loads', 'dumps', 'load', 'dump', 'JSONEncoder', 'JSONDecoder', 'JSONDecodeError'],
+            're': ['search', 'match', 'findall', 'sub', 'compile', 'escape', 'IGNORECASE', 'MULTILINE', 'DOTALL'],
+            'datetime': ['datetime', 'date', 'time', 'timedelta', 'now', 'today', 'strftime', 'strptime', 'tzinfo',
+                         'timezone'],
+            'math': ['sqrt', 'sin', 'cos', 'tan', 'pi', 'e', 'log', 'exp', 'ceil', 'floor', 'fabs', 'gcd'],
+            'random': ['random', 'randint', 'choice', 'shuffle', 'uniform', 'seed', 'randrange', 'sample', 'choices'],
+            # Adicione mais: 'collections':
+            # ['defaultdict', 'namedtuple',
+            # 'Counter', 'deque'], etc.
+        }
 
+        if module_name in hardcoded_stdlib:
+            suggestions.update(
+                hardcoded_stdlib[module_name])
+            # Debug no console
+            print(
+                f"DEBUG: Sugestões hardcoded para '{module_name}': {list(suggestions)[:5]}...")
+            return sorted(list(suggestions))
 
-def analyze_context(self, text_before_cursor, current_line):
-    """Analisa o contexto atual - NOVO MÉTODO"""
-    context = {'type': 'general'}
+        try:
+            # Tenta importar o módulo para obter
+            # seus atributos
+            if module_name in sys.builtin_module_names:
+                # Módulos built-in
+                builtin_contents = {
+                    'os': ['path', 'environ', 'getcwd', 'listdir', 'mkdir', 'remove'],
+                    'sys': ['argv', 'path', 'exit', 'version', 'platform'],
+                    'json': ['loads', 'dumps', 'load', 'dump'],
+                    're': ['search', 'match', 'findall', 'sub', 'compile', 'IGNORECASE'],
+                    'datetime': ['datetime', 'date', 'time', 'timedelta', 'now', 'today']
+                }
+                if module_name in builtin_contents:
+                    suggestions.update(
+                        builtin_contents[module_name])
+            else:
+                # Tenta importar o
+                # módulo
+                module = importlib.import_module(
+                    module_name)
+                for attr_name in dir(
+                        module):
+                    if not attr_name.startswith(
+                            '_'):
+                        suggestions.add(
+                            attr_name)
+                # Debug
+                print(
+                    f"DEBUG: Import de '{module_name}' OK, {len(suggestions)} sugestões.")
+        except ImportError as e:
+            # Debug
+            print(
+                f"DEBUG: Erro ao importar '{module_name}': {e} (usando hardcoded se disponível).")
 
-    # Verifica se está em import
-    if 'import' in current_line:
-        if 'from' in current_line:
-            # from module import ...
-            parts = current_line.split('import')
-            if len(parts) > 1:
-                module_part = parts[0].replace('from', '').strip()
-                context = {'type': 'from_import', 'module': module_part}
-        else:
-            # import module
-            context = {'type': 'import'}
-
-    # Verifica se está acessando atributo (obj.)
-    elif current_line.strip().endswith('.'):
-        parts = current_line.split('.')
-        if len(parts) >= 2:
-            # Última palavra antes do ponto
-            obj_name = parts[-2].split()[-1]
-            context = {'type': 'attribute', 'object': obj_name}
-
-    # Verifica se está em chamada de função
-    elif '(' in current_line and not current_line.strip().endswith('('):
-        context = {'type': 'function_call'}
-
-    return context
-
-
-def get_import_suggestions(self):
-    """Sugestões para imports - APRIMORADO"""
-    common_modules = [
-        'os', 'sys', 'json', 're', 'datetime', 'math', 'random',
-        'subprocess', 'shutil', 'glob', 'ast', 'inspect', 'importlib',
-        'platform', 'time', 'pathlib', 'collections', 'itertools', 'functools',
-        'typing', 'logging', 'unittest', 'pytest', 'numpy', 'pandas',
-        'matplotlib', 'seaborn', 'tkinter', 'PySide6', 'threading', 'multiprocessing'
-    ]
-    return common_modules
-
-
-def get_from_import_suggestions(self, module_name):
-    """Sugestões para from module import - APRIMORADO COM HARDCODED"""
-    suggestions = set()
-
-    # HARDCODED para stdlib comuns (funciona sem import falhar)
-    hardcoded_stdlib = {
-        'tkinter': ['Tk', 'Button', 'Label', 'Entry', 'Canvas', 'Frame', 'filedialog', 'messagebox', 'simpledialog',
-                    'colorchooser', 'commondialog', 'Toplevel', 'Menu', 'Checkbutton', 'Radiobutton', 'Scale',
-                    'Scrollbar', 'Listbox', 'Text', 'Spinbox'],
-        'threading': ['Thread', 'Lock', 'RLock', 'Condition', 'Semaphore', 'BoundedSemaphore', 'Event', 'Timer',
-                      'Barrier', 'BrokenBarrierError', 'current_thread', 'main_thread', 'active_count', 'enumerate',
-                      'settrace', 'setprofile'],
-        'subprocess': ['Popen', 'PIPE', 'STDOUT', 'call', 'check_call', 'check_output', 'run', 'CalledProcessError',
-                       'TimeoutExpired', 'CompletedProcess', 'DEVNULL'],
-        'os': ['path', 'environ', 'getcwd', 'listdir', 'mkdir', 'remove', 'rename', 'system', 'walk', 'chdir',
-               'getenv', 'makedirs', 'rmdir', 'scandir'],
-        'sys': ['argv', 'path', 'exit', 'version', 'platform', 'modules', 'executable', 'stdin', 'stdout', 'stderr',
-                'gettrace', 'settrace'],
-        'json': ['loads', 'dumps', 'load', 'dump', 'JSONEncoder', 'JSONDecoder', 'JSONDecodeError'],
-        're': ['search', 'match', 'findall', 'sub', 'compile', 'escape', 'IGNORECASE', 'MULTILINE', 'DOTALL'],
-        'datetime': ['datetime', 'date', 'time', 'timedelta', 'now', 'today', 'strftime', 'strptime', 'tzinfo',
-                     'timezone'],
-        'math': ['sqrt', 'sin', 'cos', 'tan', 'pi', 'e', 'log', 'exp', 'ceil', 'floor', 'fabs', 'gcd'],
-        'random': ['random', 'randint', 'choice', 'shuffle', 'uniform', 'seed', 'randrange', 'sample', 'choices'],
-    }
-
-    if module_name in hardcoded_stdlib:
-        suggestions.update(hardcoded_stdlib[module_name])
-        # Debug no console
-        print(f"DEBUG: Sugestões hardcoded para '{module_name}': {list(suggestions)[:5]}...")
         return sorted(list(suggestions))
 
-    try:
-        # Tenta importar o módulo para obter seus atributos
-        if module_name in sys.builtin_module_names:
-            # Módulos built-in
-            builtin_contents = {
-                'os': ['path', 'environ', 'getcwd', 'listdir', 'mkdir', 'remove'],
-                'sys': ['argv', 'path', 'exit', 'version', 'platform'],
-                'json': ['loads', 'dumps', 'load', 'dump'],
-                're': ['search', 'match', 'findall', 'sub', 'compile', 'IGNORECASE'],
-                'datetime': ['datetime', 'date', 'time', 'timedelta', 'now', 'today']
-            }
-            if module_name in builtin_contents:
-                suggestions.update(builtin_contents[module_name])
-        else:
-            # Tenta importar o módulo
-            module = importlib.import_module(module_name)
-            for attr_name in dir(module):
-                if not attr_name.startswith('_'):
-                    suggestions.add(attr_name)
-            # Debug
-            print(f"DEBUG: Import de '{module_name}' OK, {len(suggestions)} sugestões.")
-    except ImportError as e:
-        # Debug
-        print(f"DEBUG: Erro ao importar '{module_name}': {e} (usando hardcoded se disponível).")
+    def get_attribute_suggestions(self, obj_name):
+        """Sugestões para atributos de objeto - APRIMORADO"""
+        suggestions = set()
 
-    return sorted(list(suggestions))
+        # Métodos comuns baseados no tipo de objeto
+        common_methods = {
+            'str': ['upper', 'lower', 'strip', 'split', 'join', 'replace', 'find',
+                    'startswith', 'endswith', 'format', 'isalpha', 'isdigit'],
+            'list': ['append', 'remove', 'pop', 'sort', 'reverse', 'index', 'count',
+                     'extend', 'insert', 'clear', 'copy'],
+            'dict': ['get', 'keys', 'values', 'items', 'update', 'pop', 'clear',
+                     'copy', 'setdefault'],
+            'set': ['add', 'remove', 'discard', 'union', 'intersection', 'difference'],
+            # pandas
+            'df': ['head', 'tail', 'describe', 'info', 'columns', 'shape', 'loc', 'iloc'],
+        }
 
+        # Verifica se é um objeto conhecido
+        for obj_type, methods in common_methods.items():
+            if obj_type in obj_name.lower():
+                suggestions.update(
+                    [f"{m}()" for m in methods])
+                break
 
-def get_attribute_suggestions(self, obj_name):
-    """Sugestões para atributos de objeto - APRIMORADO"""
-    suggestions = set()
+        # Se não encontrou, adiciona métodos genéricos
+        if not suggestions:
+            generic_methods = ['__str__', '__repr__', '__len__', '__getitem__',
+                               '__setitem__', '__iter__', '__next__']
+            suggestions.update(
+                [f"{m}()" for m in generic_methods])
 
-    # Métodos comuns baseados no tipo de objeto
-    common_methods = {
-        'str': ['upper', 'lower', 'strip', 'split', 'join', 'replace', 'find',
-                'startswith', 'endswith', 'format', 'isalpha', 'isdigit'],
-        'list': ['append', 'remove', 'pop', 'sort', 'reverse', 'index', 'count',
-                 'extend', 'insert', 'clear', 'copy'],
-        'dict': ['get', 'keys', 'values', 'items', 'update', 'pop', 'clear',
-                 'copy', 'setdefault'],
-        'set': ['add', 'remove', 'discard', 'union', 'intersection', 'difference'],
-        # pandas
-        'df': ['head', 'tail', 'describe', 'info', 'columns', 'shape', 'loc', 'iloc'],
-    }
+        return suggestions
 
-    # Verifica se é um objeto conhecido
-    for obj_type, methods in common_methods.items():
-        if obj_type in obj_name.lower():
-            suggestions.update([f"{m}()" for m in methods])
-            break
+    def get_function_suggestions(self):
+        """Sugestões para chamadas de função - NOVO"""
+        suggestions = set()
 
-    # Se não encontrou, adiciona métodos genéricos
-    if not suggestions:
-        generic_methods = ['__str__', '__repr__', '__len__', '__getitem__',
-                           '__setitem__', '__iter__', '__next__']
-        suggestions.update([f"{m}()" for m in generic_methods])
+        # Adiciona funções built-in
+        builtins = [
+            'print', 'len', 'str', 'int', 'float', 'list', 'dict', 'set', 'tuple',
+            'range', 'input', 'open', 'type', 'sum', 'min', 'max', 'abs', 'round',
+            'sorted', 'reversed', 'enumerate', 'zip', 'map', 'filter', 'any', 'all',
+            'isinstance', 'issubclass', 'hasattr', 'getattr', 'setattr'
+        ]
+        suggestions.update([f"{b}()" for b in builtins])
 
-    return suggestions
+        return suggestions
 
+    def get_general_suggestions(self):
+        """Sugestões gerais - COMPLETAMENTE REFEITO"""
+        suggestions = set()
 
-def get_function_suggestions(self):
-    """Sugestões para chamadas de função - NOVO"""
-    suggestions = set()
+        # 1. Palavras-chave Python
+        keywords = {
+            "if", "else", "elif", "for", "while", "break", "continue", "pass", "return",
+            "try", "except", "finally", "raise", "def", "class", "lambda", "global",
+            "nonlocal", "import", "from", "as", "and", "or", "not", "in", "is",
+            "True", "False", "None", "with", "yield", "assert", "del", "async", "await"
+        }
+        suggestions.update(keywords)
 
-    # Adiciona funções built-in
-    builtins = [
-        'print', 'len', 'str', 'int', 'float', 'list', 'dict', 'set', 'tuple',
-        'range', 'input', 'open', 'type', 'sum', 'min', 'max', 'abs', 'round',
-        'sorted', 'reversed', 'enumerate', 'zip', 'map', 'filter', 'any', 'all',
-        'isinstance', 'issubclass', 'hasattr', 'getattr', 'setattr'
-    ]
-    suggestions.update([f"{b}()" for b in builtins])
+        # 2. Funções built-in
+        builtins = [
+            "print", "len", "str", "int", "float", "list", "dict", "set", "tuple",
+            "range", "input", "open", "type", "sum", "min", "max", "abs", "round",
+            "sorted", "reversed", "enumerate", "zip", "map", "filter", "any", "all",
+            "bool", "chr", "ord", "dir", "help", "id", "isinstance", "issubclass",
+            "getattr", "setattr", "hasattr", "vars", "locals", "globals", "exec", "eval"
+        ]
+        suggestions.update([f"{b}()" for b in builtins])
 
-    return suggestions
+        # 3. Definições locais do arquivo atual
+        local_defs = self.extract_local_definitions()
+        suggestions.update(local_defs)
 
+        # 4. Módulos importados
+        imported_modules = self.extract_imported_modules()
+        suggestions.update(imported_modules)
 
-def get_general_suggestions(self):
-    """Sugestões gerais - COMPLETAMENTE REFEITO"""
-    suggestions = set()
+        return suggestions
 
-    # 1. Palavras-chave Python
-    keywords = {
-        "if", "else", "elif", "for", "while", "break", "continue", "pass", "return",
-        "try", "except", "finally", "raise", "def", "class", "lambda", "global",
-        "nonlocal", "import", "from", "as", "and", "or", "not", "in", "is",
-        "True", "False", "None", "with", "yield", "assert", "del", "async", "await"
-    }
-    suggestions.update(keywords)
+    def extract_local_definitions(self):
+        """Extrai definições locais do código atual - APRIMORADO"""
+        definitions = set()
 
-    # 2. Funções built-in
-    builtins = [
-        "print", "len", "str", "int", "float", "list", "dict", "set", "tuple",
-        "range", "input", "open", "type", "sum", "min", "max", "abs", "round",
-        "sorted", "reversed", "enumerate", "zip", "map", "filter", "any", "all",
-        "bool", "chr", "ord", "dir", "help", "id", "isinstance", "issubclass",
-        "getattr", "setattr", "hasattr", "vars", "locals", "globals", "exec", "eval"
-    ]
-    suggestions.update([f"{b}()" for b in builtins])
+        try:
+            # Usa regex para encontrar definições
+            # rapidamente
+            code = self.text
 
-    # 3. Definições locais do arquivo atual
-    local_defs = self.extract_local_definitions()
-    suggestions.update(local_defs)
+            # Funções
+            func_pattern = r'def\s+([a-zA-Z_][a-zA-Z0-9_]*)'
+            functions = re.findall(
+                func_pattern, code)
+            definitions.update(
+                [f"{f}()" for f in functions])
 
-    # 4. Módulos importados
-    imported_modules = self.extract_imported_modules()
-    suggestions.update(imported_modules)
+            # Classes
+            class_pattern = r'class\s+([a-zA-Z_][a-zA-Z0-9_]*)'
+            classes = re.findall(
+                class_pattern, code)
+            definitions.update(classes)
 
-    return suggestions
+            # Variáveis (apenas as mais
+            # significativas)
+            var_pattern = r'^(\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*[^=\s]'
+            var_matches = re.findall(
+                var_pattern, code, re.MULTILINE)
+            for _, var in var_matches:
+                if len(var) > 2 and not var.startswith(
+                        '_'):  # Filtra variáveis muito curtas e privadas
+                    definitions.add(
+                        var)
 
+        except Exception as e:
+            print(
+                f"Erro ao extrair definições locais: {e}")
 
-def extract_local_definitions(self):
-    """Extrai definições locais do código atual - APRIMORADO"""
-    definitions = set()
+        return definitions
 
-    try:
-        # Usa regex para encontrar definições rapidamente
-        code = self.text
+    def extract_imported_modules(self):
+        """Extrai módulos importados - APRIMORADO"""
+        modules = set()
 
-        # Funções
-        func_pattern = r'def\s+([a-zA-Z_][a-zA-Z0-9_]*)'
-        functions = re.findall(func_pattern, code)
-        definitions.update([f"{f}()" for f in functions])
+        try:
+            code = self.text
 
-        # Classes
-        class_pattern = r'class\s+([a-zA-Z_][a-zA-Z0-9_]*)'
-        classes = re.findall(class_pattern, code)
-        definitions.update(classes)
+            # Import simples: import module
+            simple_imports = re.findall(
+                r'import\s+([a-zA-Z_][a-zA-Z0-9_]*)', code)
+            modules.update(simple_imports)
 
-        # Variáveis (apenas as mais significativas)
-        var_pattern = r'^(\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*[^=\s]'
-        var_matches = re.findall(var_pattern, code, re.MULTILINE)
-        for _, var in var_matches:
-            if len(var) > 2 and not var.startswith('_'):  # Filtra variáveis muito curtas e privadas
-                definitions.add(var)
+            # Import from: from module import ...
+            from_imports = re.findall(
+                r'from\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+import', code)
+            modules.update(from_imports)
 
-    except Exception as e:
-        print(f"Erro ao extrair definições locais: {e}")
+            # Import com alias: import module as
+            # alias
+            alias_imports = re.findall(
+                r'import\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+as', code)
+            modules.update(alias_imports)
 
-    return definitions
+        except Exception as e:
+            print(
+                f"Erro ao extrair módulos importados: {e}")
 
+        return modules
 
-def extract_imported_modules(self):
-    """Extrai módulos importados - APRIMORADO"""
-    modules = set()
-
-    try:
-        code = self.text
-
-        # Import simples: import module
-        simple_imports = re.findall(r'import\s+([a-zA-Z_][a-zA-Z0-9_]*)', code)
-        modules.update(simple_imports)
-
-        # Import from: from module import ...
-        from_imports = re.findall(r'from\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+import', code)
-        modules.update(from_imports)
-
-        # Import com alias: import module as alias
-        alias_imports = re.findall(r'import\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+as', code)
-        modules.update(alias_imports)
-
-    except Exception as e:
-        print(f"Erro ao extrair módulos importados: {e}")
-
-    return modules
-
-
-def closeEvent(self, event):
-    """Garante que o worker seja parado ao fechar a IDE"""
-    if hasattr(self, 'auto_complete_worker'):
-        self.auto_complete_worker.stop()
-    super().closeEvent(event)
 
 class DebugWorker(QThread):
-    """Worker para execução de debug em thread separada"""
-    output_received = QSignal(str)  # Mudança: Signal -> QSignal (importado como QSignal)
-    finished = QSignal(int)  # return code
+    #    """Worker para execução de debug em thread separada"""
+    output_received = Signal(str)
+    finished = Signal(int)  # return code
 
     def __init__(self, python_exec, file_path, project_path):
         super().__init__()
@@ -3508,14 +3476,14 @@ class DebugWorker(QThread):
         self._is_running = True
 
     def stop(self):
-        """Para a execução do debug"""
+        #        """Para a execução do debug"""
         self._is_running = False
         if self.process:
             self.process.terminate()
         self.terminate()
 
     def run(self):
-        """Executa o debug em thread separada"""
+        #  """Executa o debug em thread separada"""
         try:
             self.process = QProcess()
             self.process.readyReadStandardOutput.connect(
@@ -3544,26 +3512,27 @@ class DebugWorker(QThread):
                 f"❌ Erro no debug: {str(e)}")
 
     def handle_stdout(self):
-        """Processa saída padrão"""
+        #        """Processa saída padrão"""
         data = self.process.readAllStandardOutput().data().decode('utf-8', errors='ignore')
         if data:
             self.output_received.emit(data)
 
     def handle_stderr(self):
-        """Processa erro padrão"""
+        #        """Processa erro padrão"""
         data = self.process.readAllStandardError().data().decode('utf-8', errors='ignore')
         if data:
             self.output_received.emit(data)
 
     def on_finished(self, exit_code, exit_status):
-        """Processa término do processo"""
+        #       """Processa término do processo"""
         self.finished.emit(exit_code)
 
     def send_command(self, command):
-        """Envia comando para o processo de debug"""
+        #        """Envia comando para o processo de debug"""
         if self.process and self.process.state() == QProcess.Running:
             self.process.write(
                 f"{command}\n".encode())
+
 
 # ===== COMPONENTES DE INTERFACE =====
 
@@ -5463,11 +5432,11 @@ class DebugTerminal(TerminalTextEdit):
 
 
 # gereciador de pacotes
-# gereciador de pacotes
+
 class PackageManagerThread(QThread):
-    output_signal = QSignal(str)  # Mudança: Signal -> QSignal (importado como QSignal)
-    finished_signal = QSignal(bool, str)
-    progress_signal = QSignal(str)
+    output_signal = Signal(str)
+    finished_signal = Signal(bool, str)
+    progress_signal = Signal(str)
 
     def __init__(self, command, package_name="", version=""):
         super().__init__()
@@ -5478,62 +5447,83 @@ class PackageManagerThread(QThread):
     def run(self):
         try:
             if self.command == "list":
-                self.progress_signal.emit("Listando pacotes instalados...")
+                self.progress_signal.emit(
+                    "Listando pacotes instalados...")
                 result = subprocess.run(
-                    [sys.executable, "-m", "pip", "list", "--format=json"],
+                    [sys.executable, "-m", "pip",
+                     "list", "--format=json"],
                     capture_output=True, text=True, encoding='utf-8', timeout=30
                 )
-                self.output_signal.emit(result.stdout)
+                self.output_signal.emit(
+                    result.stdout)
 
             elif self.command == "search":
-                self.progress_signal.emit(f"Buscando pacote: {self.package_name}...")
+                self.progress_signal.emit(
+                    f"Buscando pacote: {self.package_name}...")
                 result = subprocess.run(
-                    [sys.executable, "-m", "pip", "search", self.package_name],
+                    [sys.executable, "-m", "pip",
+                     "search", self.package_name],
                     capture_output=True, text=True, encoding='utf-8', timeout=30
                 )
-                self.output_signal.emit(result.stdout)
+                self.output_signal.emit(
+                    result.stdout)
 
             elif self.command == "install":
                 package_spec = self.package_name
                 if self.version:
                     package_spec = f"{self.package_name}=={self.version}"
 
-                self.progress_signal.emit(f"Instalando {package_spec}...")
+                self.progress_signal.emit(
+                    f"Instalando {package_spec}...")
                 result = subprocess.run(
-                    [sys.executable, "-m", "pip", "install", package_spec],
+                    [sys.executable, "-m", "pip",
+                     "install", package_spec],
                     capture_output=True, text=True, encoding='utf-8', timeout=120
                 )
                 if result.returncode == 0:
-                    self.finished_signal.emit(True, f"Pacote {package_spec} instalado com sucesso!")
+                    self.finished_signal.emit(
+                        True, f"Pacote {package_spec} instalado com sucesso!")
                 else:
-                    self.finished_signal.emit(False, f"Erro ao instalar: {result.stderr}")
+                    self.finished_signal.emit(
+                        False, f"Erro ao instalar: {result.stderr}")
 
             elif self.command == "uninstall":
-                self.progress_signal.emit(f"Desinstalando {self.package_name}...")
+                self.progress_signal.emit(
+                    f"Desinstalando {self.package_name}...")
                 result = subprocess.run(
-                    [sys.executable, "-m", "pip", "uninstall", "-y", self.package_name],
+                    [
+                        sys.executable, "-m", "pip", "uninstall", "-y", self.package_name],
                     capture_output=True, text=True, encoding='utf-8', timeout=60
                 )
                 if result.returncode == 0:
-                    self.finished_signal.emit(True, f"Pacote {self.package_name} desinstalado com sucesso!")
+                    self.finished_signal.emit(
+                        True, f"Pacote {self.package_name} desinstalado com sucesso!")
                 else:
-                    self.finished_signal.emit(False, f"Erro ao desinstalar: {result.stderr}")
+                    self.finished_signal.emit(
+                        False, f"Erro ao desinstalar: {result.stderr}")
 
             elif self.command == "upgrade":
-                self.progress_signal.emit(f"Atualizando {self.package_name}...")
+                self.progress_signal.emit(
+                    f"Atualizando {self.package_name}...")
                 result = subprocess.run(
-                    [sys.executable, "-m", "pip", "install", "--upgrade", self.package_name],
+                    [
+                        sys.executable, "-m", "pip", "install", "--upgrade", self.package_name],
                     capture_output=True, text=True, encoding='utf-8', timeout=120
                 )
                 if result.returncode == 0:
-                    self.finished_signal.emit(True, f"Pacote {self.package_name} atualizado com sucesso!")
+                    self.finished_signal.emit(
+                        True, f"Pacote {self.package_name} atualizado com sucesso!")
                 else:
-                    self.finished_signal.emit(False, f"Erro ao atualizar: {result.stderr}")
+                    self.finished_signal.emit(
+                        False, f"Erro ao atualizar: {result.stderr}")
 
         except subprocess.TimeoutExpired:
-            self.finished_signal.emit(False, "Timeout: A operação demorou muito.")
+            self.finished_signal.emit(
+                False, "Timeout: A operação demorou muito.")
         except Exception as e:
-            self.finished_signal.emit(False, f"Erro: {str(e)}")
+            self.finished_signal.emit(
+                False, f"Erro: {str(e)}")
+
 
 class PackageManagerDialog(QDialog):
     def __init__(self, parent=None):
@@ -5553,12 +5543,15 @@ class PackageManagerDialog(QDialog):
         # Busca e instalação
         install_layout = QHBoxLayout()
         self.package_input = QLineEdit()
-        self.package_input.setPlaceholderText("Nome do pacote...")
-        self.package_input.returnPressed.connect(self.search_package)
+        self.package_input.setPlaceholderText(
+            "Nome do pacote...")
+        self.package_input.returnPressed.connect(
+            self.search_package)
         install_layout.addWidget(self.package_input)
 
         self.version_input = QLineEdit()
-        self.version_input.setPlaceholderText("Versão (opcional)")
+        self.version_input.setPlaceholderText(
+            "Versão (opcional)")
         self.version_input.setFixedWidth(100)
         install_layout.addWidget(self.version_input)
 
@@ -5576,7 +5569,8 @@ class PackageManagerDialog(QDialog):
         action_layout = QHBoxLayout()
 
         self.uninstall_btn = QPushButton("🗑️ Desinstalar")
-        self.uninstall_btn.clicked.connect(self.uninstall_package)
+        self.uninstall_btn.clicked.connect(
+            self.uninstall_package)
         action_layout.addWidget(self.uninstall_btn)
 
         self.upgrade_btn = QPushButton("🔄 Atualizar")
@@ -5599,20 +5593,25 @@ class PackageManagerDialog(QDialog):
         filter_layout = QHBoxLayout()
         filter_layout.addWidget(QLabel("Filtrar:"))
         self.filter_input = QLineEdit()
-        self.filter_input.setPlaceholderText("Filtrar pacotes...")
-        self.filter_input.textChanged.connect(self.filter_packages)
+        self.filter_input.setPlaceholderText(
+            "Filtrar pacotes...")
+        self.filter_input.textChanged.connect(
+            self.filter_packages)
         filter_layout.addWidget(self.filter_input)
         packages_layout.addLayout(filter_layout)
 
         self.packages_list = QListWidget()
-        self.packages_list.itemDoubleClicked.connect(self.package_selected)
+        self.packages_list.itemDoubleClicked.connect(
+            self.package_selected)
         self.packages_list.setAlternatingRowColors(True)
         packages_layout.addWidget(self.packages_list)
 
         # Informações do pacote
-        self.package_info = QLabel("Selecione um pacote para ver informações")
+        self.package_info = QLabel(
+            "Selecione um pacote para ver informações")
         self.package_info.setWordWrap(True)
-        self.package_info.setStyleSheet("background-color: #f0f0f0; padding: 5px; border: 1px solid #ccc;")
+        self.package_info.setStyleSheet(
+            "background-color: #f0f0f0; padding: 5px; border: 1px solid #ccc;")
         packages_layout.addWidget(self.package_info)
 
         packages_group.setLayout(packages_layout)
@@ -5639,12 +5638,16 @@ class PackageManagerDialog(QDialog):
     def refresh_packages(self):
         """Atualiza lista de pacotes"""
         self.progress_bar.setVisible(True)
-        self.output_text.append("🔄 Atualizando lista de pacotes...")
+        self.output_text.append(
+            "🔄 Atualizando lista de pacotes...")
 
         self.thread = PackageManagerThread("list")
-        self.thread.output_signal.connect(self.update_packages_list)
-        self.thread.finished_signal.connect(self.on_operation_finished)
-        self.thread.progress_signal.connect(self.update_progress_text)
+        self.thread.output_signal.connect(
+            self.update_packages_list)
+        self.thread.finished_signal.connect(
+            self.on_operation_finished)
+        self.thread.progress_signal.connect(
+            self.update_progress_text)
         self.thread.start()
 
     def update_packages_list(self, output):
@@ -5654,7 +5657,8 @@ class PackageManagerDialog(QDialog):
             self.all_packages = packages
             self.filter_packages()
         except json.JSONDecodeError:
-            self.output_text.append("❌ Erro ao analisar lista de pacotes")
+            self.output_text.append(
+                "❌ Erro ao analisar lista de pacotes")
 
     def filter_packages(self):
         """Filtra pacotes baseado no texto do filtro"""
@@ -5670,64 +5674,82 @@ class PackageManagerDialog(QDialog):
 
             if filter_text in name or filter_text in version:
                 item_text = f"{package['name']} ({package['version']})"
-                item = QListWidgetItem(item_text)
-                item.setData(Qt.UserRole, package)
-                self.packages_list.addItem(item)
+                item = QListWidgetItem(
+                    item_text)
+                item.setData(
+                    Qt.UserRole, package)
+                self.packages_list.addItem(
+                    item)
 
     def search_package(self):
         """Busca pacote no PyPI"""
         package_name = self.package_input.text().strip()
         if not package_name:
-            QMessageBox.warning(self, "Aviso", "Digite o nome do pacote!")
+            QMessageBox.warning(
+                self, "Aviso", "Digite o nome do pacote!")
             return
 
-        self.output_text.append(f"🔍 Buscando pacote: {package_name}")
+        self.output_text.append(
+            f"🔍 Buscando pacote: {package_name}")
         self.progress_bar.setVisible(True)
 
-        self.thread = PackageManagerThread("search", package_name)
-        self.thread.output_signal.connect(self.show_search_results)
-        self.thread.finished_signal.connect(self.on_operation_finished)
-        self.thread.progress_signal.connect(self.update_progress_text)
+        self.thread = PackageManagerThread(
+            "search", package_name)
+        self.thread.output_signal.connect(
+            self.show_search_results)
+        self.thread.finished_signal.connect(
+            self.on_operation_finished)
+        self.thread.progress_signal.connect(
+            self.update_progress_text)
         self.thread.start()
 
     def show_search_results(self, output):
         """Mostra resultados da busca"""
-        self.output_text.append("Resultados da busca:\n" + output)
+        self.output_text.append(
+            "Resultados da busca:\n" + output)
 
     def install_package(self, package_name):
         """Instala um pacote Python"""
         try:
-            # CORREÇÃO: Use self.output_text local, não output_tabs (que é do IDE)
-            self.output_text.appendPlainText(f"📦 Instalando {package_name}...\n")
+            python_exec = self.get_python_executable()
 
-            # CORREÇÃO: Chame get_python_executable do parent (IDE)
-            python_exec = self.parent().get_python_executable() if self.parent() else sys.executable
+            self.output_tabs.setCurrentWidget(
+                self.output_text)
+            self.output_text.appendPlainText(
+                f"📦 Instalando {package_name}...\n")
 
             result = subprocess.run(
-                [python_exec, "-m", "pip", "install", package_name],
+                [python_exec, "-m", "pip",
+                 "install", package_name],
                 capture_output=True,
                 text=True,
                 timeout=120
             )
 
             if result.stdout:
-                self.output_text.appendPlainText(result.stdout)
+                self.output_text.appendPlainText(
+                    result.stdout)
             if result.stderr:
-                self.output_text.appendPlainText(result.stderr)
+                self.output_text.appendPlainText(
+                    result.stderr)
 
             if result.returncode == 0:
-                self.output_text.appendPlainText(f"\n✅ {package_name} instalado com sucesso!")
+                self.output_text.appendPlainText(
+                    f"\n✅ {package_name} instalado com sucesso!")
             else:
-                self.output_text.appendPlainText(f"\n❌ Falha na instalação de {package_name}")
+                self.output_text.appendPlainText(
+                    f"\n❌ Falha na instalação de {package_name}")
 
         except Exception as e:
-            self.output_text.appendPlainText(f"💥 Erro na instalação: {str(e)}")
+            self.output_text.appendPlainText(
+                f"💥 Erro na instalação: {str(e)}")
 
     def uninstall_package(self):
         """Desinstala pacote selecionado"""
         current_item = self.packages_list.currentItem()
         if not current_item:
-            QMessageBox.warning(self, "Aviso", "Selecione um pacote da lista!")
+            QMessageBox.warning(
+                self, "Aviso", "Selecione um pacote da lista!")
             return
 
         package_data = current_item.data(Qt.UserRole)
@@ -5738,26 +5760,34 @@ class PackageManagerDialog(QDialog):
             f"Desinstalar o pacote {package_name}?"
         )
         if reply == QMessageBox.Yes:
-            self.output_text.append(f"🗑️ Desinstalando {package_name}")
-            self.thread = PackageManagerThread("uninstall", package_name)
-            self.thread.finished_signal.connect(self.on_operation_finished)
-            self.thread.progress_signal.connect(self.update_progress_text)
+            self.output_text.append(
+                f"🗑️ Desinstalando {package_name}")
+            self.thread = PackageManagerThread(
+                "uninstall", package_name)
+            self.thread.finished_signal.connect(
+                self.on_operation_finished)
+            self.thread.progress_signal.connect(
+                self.update_progress_text)
             self.thread.start()
 
     def upgrade_package(self):
         """Atualiza pacote selecionado"""
         current_item = self.packages_list.currentItem()
         if not current_item:
-            QMessageBox.warning(self, "Aviso", "Selecione um pacote da lista!")
+            QMessageBox.warning(
+                self, "Aviso", "Selecione um pacote da lista!")
             return
 
         package_data = current_item.data(Qt.UserRole)
         package_name = package_data['name']
 
         self.output_text.append(f"🔄 Atualizando {package_name}")
-        self.thread = PackageManagerThread("upgrade", package_name)
-        self.thread.finished_signal.connect(self.on_operation_finished)
-        self.thread.progress_signal.connect(self.update_progress_text)
+        self.thread = PackageManagerThread(
+            "upgrade", package_name)
+        self.thread.finished_signal.connect(
+            self.on_operation_finished)
+        self.thread.progress_signal.connect(
+            self.update_progress_text)
         self.thread.start()
 
     def package_selected(self, item):
@@ -5782,6 +5812,8 @@ class PackageManagerDialog(QDialog):
         """Atualiza texto de progresso"""
         self.output_text.append("➡️ " + message)
 
+
+# Função de Seleção de Texto Similar
 class FindFilesDialog(QDialog):
     def __init__(self, workspace_path, parent=None):
         super().__init__(parent)
@@ -5796,8 +5828,10 @@ class FindFilesDialog(QDialog):
         # Controles de busca
         search_layout = QHBoxLayout()
         self.filename_input = QLineEdit()
-        self.filename_input.setPlaceholderText("Digite parte do nome do arquivo...")
-        self.filename_input.textChanged.connect(self.search_files)
+        self.filename_input.setPlaceholderText(
+            "Digite parte do nome do arquivo...")
+        self.filename_input.textChanged.connect(
+            self.search_files)
         search_layout.addWidget(QLabel("Nome do arquivo:"))
         search_layout.addWidget(self.filename_input)
 
@@ -5805,7 +5839,8 @@ class FindFilesDialog(QDialog):
 
         # Lista de resultados
         self.results_list = QListWidget()
-        self.results_list.itemDoubleClicked.connect(self.open_file)
+        self.results_list.itemDoubleClicked.connect(
+            self.open_file)
         layout.addWidget(QLabel("Arquivos Encontrados:"))
         layout.addWidget(self.results_list)
 
@@ -5821,20 +5856,23 @@ class FindFilesDialog(QDialog):
         for root, dirs, files in os.walk(self.workspace_path):
             for file in files:
                 if search_text in file.lower():
-                    full_path = os.path.join(root, file)
-                    relative_path = os.path.relpath(full_path, self.workspace_path)
-                    self.results_list.addItem(relative_path)
+                    full_path = os.path.join(
+                        root, file)
+                    relative_path = os.path.relpath(
+                        full_path, self.workspace_path)
+                    self.results_list.addItem(
+                        relative_path)
 
     def open_file(self, item):
-        """Abre o arquivo selecionado no IDE pai"""
-        file_path = os.path.join(self.workspace_path, item.text())
+        file_path = os.path.join(
+            self.workspace_path, item.text())
         if os.path.exists(file_path):
-            # Emitir sinal ou chamar método para abrir o arquivo
+            # Emitir sinal ou chamar método para
+            # abrir o arquivo
             if hasattr(self.parent(), 'open_file'):
                 self.parent().open_file(file_path)
             self.close()
-        else:
-            print(f"Arquivo não encontrado: {file_path}")  # Log para debug
+
 
 class SymbolCollector(ast.NodeVisitor):
     """Coletor de símbolos via AST - COMPLETA"""
@@ -6112,7 +6150,7 @@ class IDE(QMainWindow):
         self.setup_ui()
         self.setup_connections()
         self.setup_shortcuts()
-		
+
         # Inicializar plugins APÓS a UI estar completamente
         # configurada
         QTimer.singleShot(100, self.setup_plugin_system)
@@ -8329,64 +8367,39 @@ Thumbs.db
         except Exception as e:
             print(f"❌ Erro em handle_terminal_error: {e}")
 
-    def activate_project(self):
 
-        """Ativa dir do projeto e venv se for Python"""
+        def activate_project(self):
+            """Muda para diretório do projeto e ativa venv"""
+
         try:
-            if not hasattr(self,
-                           'shell_process') or not self.shell_process or self.shell_process.state() != QProcess.Running:
-                print("ℹ️ Shell não rodando")
+            if not self.shell_process or self.shell_process.state() != QProcess.Running:
+                print("ℹ️ Shell parado, pulando ativação")
                 return
 
-            import os, platform
+            import platform, os
             system = platform.system()
-            if not hasattr(self, 'project_path') or not self.project_path:
-                print("ℹ️ Nenhum projeto aberto")
-                return
-
-            # Verifica se é projeto Python (tem .py no dir raiz)
-            is_python_project = any(f.endswith('.py') for f in os.listdir(self.project_path))
-            if not is_python_project:
-                print("ℹ️ Não é projeto Python, pulando venv")
-                # Só CD
-                cd_cmd = f'cd /d "{self.project_path}"' if system == "Windows" else f'cd "{self.project_path}"'
-                self.shell_process.write((cd_cmd + "\n").encode('utf-8'))
-                return
-
-            # CD primeiro
-            cd_cmd = f'cd /d "{self.project_path}" & echo 📁 Projeto Python ativado: {self.project_path}' if system == "Windows" else f'cd "{self.project_path}" && echo "📁 Projeto Python ativado: {self.project_path}"'
-            self.shell_process.write(cd_cmd.encode('utf-8'))
-
-            # Detecta e ativa venv (pastas comuns)
-            venv_paths = ['venv', '.venv', 'env', 'virtualenv']  # Adicionei 'virtualenv' opcional
-            venv_found = None
-            for v in venv_paths:
-                vpath = os.path.join(self.project_path, v)
-                if os.path.isdir(vpath):
-                    venv_found = vpath
-                    break
-
-            if venv_found:
-                v_name = os.path.basename(venv_found)  # Nome da pasta
+            if self.project_path:
+                # Comando CD
                 if system == "Windows":
-                    activate_cmd = f'& call "{os.path.join(venv_found, "Scripts", "activate.bat")}" & echo 🐍 Venv ativado: {v_name} & echo %VIRTUAL_ENV%'
+                    cd_cmd = f'cd /d "{self.project_path}" & echo 📁 Agora em: {self.project_path}\n'
                 else:
-                    activate_cmd = f'&& source "{os.path.join(venv_found, "bin", "activate")}" && echo "🐍 Venv ativado: {v_name}" && echo $VIRTUAL_ENV'
-                self.shell_process.write((activate_cmd + "\n").encode('utf-8'))
-                print(f"✅ Venv ativado: {venv_found}")
-            else:
-                # CORREÇÃO: Use string normal + encode('utf-8') para Unicode
-                no_venv_msg = 'echo ⚠️ Nenhum venv encontrado – use "python -m venv venv"\n'
-                self.shell_process.write(no_venv_msg.encode('utf-8'))
-                print("ℹ️ Sem venv no projeto")
+                    cd_cmd = f'cd "{self.project_path}" && echo "📁 Agora em: {self.project_path}"\n'
+                self.shell_process.write(cd_cmd.encode('utf-8'))
 
+                # Ativa venv se existir
+                if hasattr(self, 'venv_path') and self.venv_path and os.path.exists(self.venv_path):
+                    venv_bin = "Scripts" if system == "Windows" else "bin"
+                    activate = "activate.bat" if system == "Windows" else "activate"
+                    activate_cmd = f'call "{os.path.join(self.venv_path, venv_bin, activate)}" & echo 🐍 Venv ativado!\n' if system == "Windows" else f'source "{os.path.join(self.venv_path, venv_bin, activate)}" && echo "🐍 Venv ativado!"\n'
+                    self.shell_process.write(activate_cmd.encode('utf-8'))
+                    print(f"✅ Venv ativado: {self.venv_path}")
+
+            print(f"✅ Projeto ativado em {system}")
         except Exception as e:
-            print(f"❌ Erro ativar projeto: {e}")
+            print(f"❌ Erro na ativação ({system}): {str(e)}")
 
     def get_python_executable(self):
-
         """Obtém o executável Python"""
-    
         if self.venv_path and os.path.exists(self.venv_path):
             if os.name == 'nt':
                 return os.path.join(
@@ -8478,8 +8491,7 @@ Thumbs.db
                 dock.setVisible(not dock.isVisible())
                 dock_found = True
                 # Se mostrou e shell não rodando, inicia
-                if dock.isVisible() and not hasattr(self,
-                                                    'terminal_process_started') or not self.terminal_process_started:
+                if dock.isVisible() and not hasattr(self, 'terminal_process_started') or not self.terminal_process_started:
                     from PySide6.QtCore import QTimer
                     QTimer.singleShot(300, self.start_shell)  # Delay para UI
                 break
@@ -9244,7 +9256,6 @@ def handle_terminal_error(self):
         print(f"❌ Erro em handle_terminal_error: {e}")
 
 
-
 class SingleApplication:
     def __init__(self, app_id):
         self.app = QApplication(sys.argv)
@@ -9271,23 +9282,13 @@ class SingleApplication:
 
 
 if __name__ == "__main__":
-    # Configurar encoding de forma segura
-    try:
-        if os.name == 'nt' and hasattr(sys.stdout, 'reconfigure') and sys.stdout is not None:
-            sys.stdout.reconfigure(encoding='utf-8')
-        if os.name == 'nt' and hasattr(sys.stderr, 'reconfigure') and sys.stderr is not None:
-            sys.stderr.reconfigure(encoding='utf-8')
-    except (AttributeError, Exception):
-        # Fallback seguro se reconfigure não estiver disponível
-        pass
+    # Configurar encoding antes de qualquer coisa
+    if os.name == 'nt':
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
 
     try:
-        # Verificar se já está rodando
-        single_app = SingleApplication("py_dragon_studio_ide")
-        if not single_app.run():
-            sys.exit(1)
-
-        app = single_app.app
+        app = QApplication(sys.argv)
         app.setApplicationName("Py Dragon Studio IDE")
         app.setApplicationVersion("1.0.0")
 
@@ -9295,11 +9296,6 @@ if __name__ == "__main__":
         window.show()
 
         exit_code = app.exec()
-        
-        # Limpar servidor ao sair
-        if single_app.server:
-            single_app.server.close()
-            
         sys.exit(exit_code)
 
     except Exception as e:
