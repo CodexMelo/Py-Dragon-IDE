@@ -127,7 +127,7 @@ def handle_exception(exc_type, exc_value, exc_traceback):
 
 
 def main():
-    """Função principal da aplicação"""
+    """Função principal da aplicação - APENAS START"""
     # Configurar handler de exceções
     sys.excepthook = handle_exception
     
@@ -148,12 +148,14 @@ def main():
         sys.exit(0)
 
     try:
-        # Criar janela principal
+        # Criar janela principal - O IDE que cuida dos plugins
         window = IDE()
         single_app.ide_window = window
         
         # Mostrar janela
         window.show()
+        
+        print("🚀 Py Dragon Studio IDE iniciado!")
         
         # Executar aplicação
         exit_code = app.exec()

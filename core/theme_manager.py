@@ -1,14 +1,14 @@
 # ===== IMPORTS DO PYSIDE6 =====
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, 
-    QListWidget, QComboBox, QColorDialog, QMessageBox
+    QListWidget, QComboBox, QColorDialog, QMessageBox, QWidget,QPlainTextEdit
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPalette
-from typing import Dict, Any
 
-
-
+# ===== IMPORTS DO SISTEMA =====
+import os
+import json
 
 class ThemeManager:
     """Gerenciador de temas para o IDE"""

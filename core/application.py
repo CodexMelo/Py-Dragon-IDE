@@ -1,3 +1,4 @@
+
 import os
 import sys
 import re
@@ -20,7 +21,7 @@ import tokenize
 import io
 from pathlib import Path
 from datetime import datetime
-
+from pathlib import Path
 # ===== IMPORTS DO PYSIDE6 =====
 from PySide6.QtWidgets import (
     QMainWindow, QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
@@ -28,7 +29,8 @@ from PySide6.QtWidgets import (
     QStatusBar, QToolBar, QMenuBar, QMenu, QFileDialog, QMessageBox, 
     QDockWidget, QPlainTextEdit, QLabel, QInputDialog, QPushButton, 
     QFileSystemModel, QTreeView, QStyledItemDelegate, QDialog,
-    QListWidgetItem, QToolButton, QFontDialog, QProgressDialog
+    QListWidgetItem, QToolButton, QFontDialog, QProgressDialog,
+    QGroupBox, QTextEdit  # ADICIONADOS
 )
 from PySide6.QtCore import (
     Qt, QTimer, QSettings, QSize, QProcess, QDir, QModelIndex,
@@ -44,9 +46,18 @@ from PySide6.QtGui import (
 )
 
 # ===== IMPORTS DO PROJETO =====
-
 # Core Systems
-from core.plugin_system import PluginManager, PluginInfo 
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
+try:
+    from plugins.plugin_manager import PluginManager
+    from plugins.plugin_base import PluginStatus
+    PLUGINS_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️ Sistema de plugins não disponível: {e}")
+    PLUGINS_AVAILABLE = False
+
 from core.theme_manager import ThemeManager, ThemeDialog
 
 # Tools e Managers
@@ -60,20 +71,17 @@ from analysis.code_analyzer import CodeAnalyzer
 
 # Syntax
 from syntax.language_config import LanguageConfig  
-from syntax.syntax_manager import SyntaxHighlightingManager,LanguageSyntaxManager
-
+from syntax.syntax_manager import SyntaxHighlightingManager, LanguageSyntaxManager
 
 # Editor
 from editor.editor_core import UnifiedCodeEditor, EditorTab
 from editor.autocomplete import UnifiedSuggestionSystem
-
 
 # UI Components
 from ui.widgets import (
     StatusBarProgress,
     OutlineWidget, ProblemsDelegate, Minimap
 )
-from debug.terminal import TerminalTextEdit,DebugTerminal
 
 # UI Dialogs
 from ui.dialogs import (
@@ -85,14 +93,8 @@ from ui.dialogs import (
 # Cache
 from cache.module_cache import ModuleCacheManager
 
-# Search
-from search.find_similar import AdvancedFindSimilarDialog
-
 # Debug
-from debug.terminal import DebugTerminal
-
-
-
+from debug.terminal import TerminalTextEdit, DebugTerminal
 
 
 
@@ -111,11 +113,12 @@ class IDE(QMainWindow):
     def __init__(self):
         super().__init__()
         
-        self._initialize_debug_log()
     
     # DEPOIS: Inicializar atributos
         self._initialize_variables()
-    
+        self._initialize_debug_log()
+        self.setup_plugins()  # O IDE inicializa os plugins
+
     # DEPOIS: configurar a UI
         self.setup_managers()  # ✅ AGORA debug_log ESTÁ DEFINIDO
         self.setup_ui()
@@ -125,7 +128,10 @@ class IDE(QMainWindow):
     # Configurar sistemas avançados
         self.setup_syntax_highlighting_system()
         self.setup_autocomplete()
-        
+    
+    # CORREÇÃO: Inicializar LSP de forma segura
+        self.setup_lsp_system()
+    
     # Configurar exceções globais
         sys.excepthook = self.exception_hook
     
@@ -226,65 +232,124 @@ class IDE(QMainWindow):
         self.indentation_checker = None
     def _initialize_debug_log(self):
         """Inicializa o sistema de logging PRIMEIRO"""
-        # Definir o método debug_log antes de qualquer uso
+    # Definir o método debug_log antes de qualquer uso
         def debug_log(message, level="INFO"):
-            levels = {
+                levels = {
                 "INFO": "ℹ️",
                 "SUCCESS": "✅", 
                 "WARNING": "⚠️",
                 "ERROR": "❌",
                 "DEBUG": "🐛"
-            }
-            icon = levels.get(level, "🔵")
-            timestamp = datetime.now().strftime("%H:%M:%S")
-            print(f"{icon} [{timestamp}] {message}")
+                }
+                icon = levels.get(level, "🔵")
+                timestamp = datetime.now().strftime("%H:%M:%S")
+                print(f"{icon} [{timestamp}] {message}")
     
         # Atribuir ao self
         self.debug_log = debug_log
         print("✅ Sistema de logging inicializado")
-
-
-    def setup_managers(self):
-        """Inicializa todos os gerenciadores do sistema - VERSÃO SEGURA"""
+            
+            
+    def initialize_delayed_systems(self):
+        """Inicializa sistemas que dependem da UI estar completamente carregada"""
         try:
-            print("🔧 Inicializando gerenciadores...")
-        
-            # Gerenciador de versões Python
-            self.python_version_manager = PythonVersionManager()
-            print("✅ Gerenciador de versões Python inicializado")
+            self.debug_log("🔄 Inicializando sistemas atrasados...")
             
-            # Gerenciador de temas
-            self.theme_manager = ThemeManager()
-            print("✅ Gerenciador de temas inicializado")
+            # Configurar escopo
+            self.setup_scope_header()
             
-            # Verificador de indentação
-            self.indentation_checker = IndentationChecker()
-            print("✅ Verificador de indentação inicializado")
+            # Configurar indicadores visuais
+            self.setup_indicators()
             
-            # Configuração de linguagem
-            self.language_config = LanguageConfig()
-            print("✅ Configuração de linguagem inicializada")
+            # Conectar sinais de undo/redo
+            QTimer.singleShot(200, self.setup_undo_redo_connections)
             
-            # Gerenciador de sintaxe
-            self.language_syntax_manager = LanguageSyntaxManager()
-            print("✅ Gerenciador de sintaxe inicializado")
-    
-            # Gerenciador de cache global
-            global module_cache_manager
-            module_cache_manager = ModuleCacheManager()
-            print("✅ Gerenciador de cache inicializado")
-            
-            # Gerenciador de syntax highlighting (será configurado depois)
-            self.syntax_highlighting_manager = None
-            
-            # Gerenciador LSP (será configurado depois)
-            self.lsp_manager = None
-            
-            print("✅ Todos os gerenciadores inicializados com sucesso")
+            # Atualizar outline inicial
+            if hasattr(self, 'outline_widget'):
+                QTimer.singleShot(300, self.outline_widget.refresh_outline)
+                
+            self.debug_log("✅ Sistemas atrasados inicializados", "SUCCESS")
             
         except Exception as e:
-            print(f"❌ Erro ao inicializar gerenciadores: {e}")
-            # Continua mesmo com erro para não quebrar a aplicação
+            self.debug_log(f"❌ Erro em sistemas atrasados: {e}", "ERROR")
+            
+        
+    def setup_managers(self):
+	    """Inicializa todos os gerenciadores do sistema - VERSÃO MAIS SEGURA"""
+	    try:
+	        print("🔧 Inicializando gerenciadores...")
+    
+        # Gerenciador de versões Python - COM VERIFICAÇÃO
+	        try:
+	            
+	            self.python_version_manager = PythonVersionManager()
+	            print("✅ Gerenciador de versões Python inicializado")
+	        except Exception as e:
+	            print(f"⚠️ Erro ao inicializar gerenciador de versões Python: {e}")
+	            self.python_version_manager = None
+            
+        # Gerenciador de temas - COM VERIFICAÇÃO
+	        try:
+	            from core.theme_manager import ThemeManager
+	            self.theme_manager = ThemeManager()
+	            print("✅ Gerenciador de temas inicializado")
+	        except Exception as e:
+	            print(f"⚠️ Erro ao inicializar gerenciador de temas: {e}")
+	            self.theme_manager = None
+        
+        # Verificador de indentação - COM VERIFICAÇÃO
+	        try:
+	            from tools.indentation_checker import IndentationChecker
+	            self.indentation_checker = IndentationChecker()
+	            print("✅ Verificador de indentação inicializado")
+	        except Exception as e:
+	            print(f"⚠️ Erro ao inicializar verificador de indentação: {e}")
+	            self.indentation_checker = None
+            
+        # Configuração de linguagem - COM VERIFICAÇÃO
+	        try:
+	            from syntax.language_config import LanguageConfig
+	            self.language_config = LanguageConfig()
+	            print("✅ Configuração de linguagem inicializada")
+	        except Exception as e:
+	            print(f"⚠️ Erro ao inicializar configuração de linguagem: {e}")
+	            self.language_config = None
+            
+        # Gerenciador de sintaxe - COM VERIFICAÇÃO
+	        try:
+	            from syntax.syntax_manager import LanguageSyntaxManager
+	            self.language_syntax_manager = LanguageSyntaxManager()
+	            print("✅ Gerenciador de sintaxe inicializado")
+	        except Exception as e:
+	            print(f"⚠️ Erro ao inicializar gerenciador de sintaxe: {e}")
+	            self.language_syntax_manager = None
+
+        # Gerenciador de cache global - COM VERIFICAÇÃO
+	        try:
+	            from cache.module_cache import ModuleCacheManager
+	            global module_cache_manager
+	            module_cache_manager = ModuleCacheManager()
+	            print("✅ Gerenciador de cache inicializado")
+	        except Exception as e:
+	            print(f"⚠️ Erro ao inicializar gerenciador de cache: {e}")
+	            module_cache_manager = None
+            
+        # Gerenciador de syntax highlighting (será configurado depois)
+	        self.syntax_highlighting_manager = None
+        
+        # Gerenciador LSP (será configurado depois)
+	        self.lsp_manager = None
+        
+	        print("✅ Gerenciadores principais inicializados")
+        
+	    except Exception as e:
+	        print(f"❌ Erro crítico ao inicializar gerenciadores: {e}")
+        # Define valores padrão para evitar NoneType errors
+	        self.python_version_manager = None
+	        self.theme_manager = None
+	        self.indentation_checker = None
+	        self.language_config = None
+	        self.language_syntax_manager = None
     
     def debug_log(self, message, level="INFO"):
         """Sistema de logging consistente - DEFINIR AGORA"""
@@ -299,7 +364,6 @@ class IDE(QMainWindow):
         timestamp = datetime.now().strftime("%H:%M:%S")
         print(f"{icon} [{timestamp}] {message}")
     
-
     def setup_scope_header(self):
         """Configura o header de escopo (classe/função atual) - NOVO MÉTODO"""
         # Este método será implementado para mostrar o escopo atual
@@ -315,7 +379,7 @@ class IDE(QMainWindow):
             print("✅ Header de escopo configurado")
         except Exception as e:
             print(f"⚠️ Erro ao configurar header de escopo: {e}")
-
+    
     def update_scope_display(self, index):
         """Atualiza o display do escopo quando a aba muda - NOVO MÉTODO"""
         try:
@@ -840,18 +904,14 @@ class IDE(QMainWindow):
         """Configura o menu de ferramentas com as novas funcionalidades"""
 
         # Gestor de Versões Python
-        python_versions_action = QAction(
-            "🐍 Gerenciador de Versões Python", self)
-        python_versions_action.triggered.connect(
-            self.open_python_version_manager)
+        python_versions_action = QAction("🐍 Gerenciador de Versões Python", self)
+        python_versions_action.triggered.connect(self.open_python_version_manager)
         tools_menu.addAction(python_versions_action)
 
         # Localizador de Textos Similares Aprimorado
-        find_similar_action = QAction(
-            "🔍 Localizador de Textos Similares", self)
+        find_similar_action = QAction("🔍 Localizador de Textos Similares", self)
         find_similar_action.setShortcut("Ctrl+Shift+F")
-        find_similar_action.triggered.connect(
-            self.open_advanced_find_similar)
+        find_similar_action.triggered.connect(self.open_advanced_find_similar)
         tools_menu.addAction(find_similar_action)
 
         # Gerenciador de Pacotes
@@ -859,36 +919,40 @@ class IDE(QMainWindow):
         package_action.setShortcut("Ctrl+Shift+P")
         package_action.triggered.connect(self.open_package_manager)
         tools_menu.addAction(package_action)
-
+    
         # Gerenciador de Temas
         theme_action = QAction("🎨 Gerenciador de Temas", self)
         theme_action.triggered.connect(self.open_theme_manager)
         tools_menu.addAction(theme_action)
-
+        
         tools_menu.addSeparator()
-
-        # GERENCIADOR DE PLUGINS
-        plugin_manager_action = QAction(
-            "🔌 Gerenciador de Plugins", self)
-        plugin_manager_action.triggered.connect(
-            self.show_plugin_manager)
+    
+        # GERENCIADOR DE PLUGINS - CORRIGIDO
+        plugin_manager_action = QAction("🔌 Gerenciador de Plugins", self)
+        plugin_manager_action.triggered.connect(self.show_plugin_manager_dialog)  # Método correto
         tools_menu.addAction(plugin_manager_action)
-
+    
+        # Instalar Plugin
+        install_plugin_action = QAction("📥 Instalar Plugin", self)
+        install_plugin_action.triggered.connect(self.install_new_plugin)
+        tools_menu.addAction(install_plugin_action)
+    
+        # Atualizar Plugins
+        refresh_plugins_action = QAction("🔄 Atualizar Plugins", self)
+        refresh_plugins_action.triggered.connect(self.refresh_plugins)
+        tools_menu.addAction(refresh_plugins_action)
+    
         tools_menu.addSeparator()
 
         # Outras ferramentas existentes
-        manage_packages_action = QAction(
-            "🔧 Gerenciar Pacotes", self)
-        manage_packages_action.triggered.connect(
-            self.manage_packages)
+        manage_packages_action = QAction("🔧 Gerenciar Pacotes", self)
+        manage_packages_action.triggered.connect(self.manage_packages)
         tools_menu.addAction(manage_packages_action)
 
-        select_python_action = QAction(
-            "🐍 Selecionar Python", self)
-        select_python_action.triggered.connect(
-            self.select_python_version)
+        select_python_action = QAction("🐍 Selecionar Python", self)
+        select_python_action.triggered.connect(self.select_python_version)
         tools_menu.addAction(select_python_action)
-
+    
         format_action = QAction("📐 Formatar Código", self)
         format_action.setShortcut("Ctrl+Shift+L")
         format_action.triggered.connect(self.format_code)
@@ -898,7 +962,7 @@ class IDE(QMainWindow):
         settings_action.setShortcut("Ctrl+,")
         settings_action.triggered.connect(self.show_settings)
         tools_menu.addAction(settings_action)
-
+    
     def show_plugin_manager(self):
         """Mostra gerenciador de plugins"""
         QMessageBox.information(self, "Gerenciador de Plugins",
@@ -907,10 +971,24 @@ class IDE(QMainWindow):
 
     def open_python_version_manager(self):
         """Abre o gerenciador de versões Python"""
-        dialog = PythonVersionDialog(
-            self.python_version_manager, self)
-        dialog.exec()
-
+        try:
+            # ✅ TENTA IMPORTAR E CRIAR O VERSION MANAGER
+            try:
+                version_manager = PythonVersionManager()
+            except Exception as e:
+                print(f"⚠️ Não foi possível criar version manager: {e}")
+                version_manager = None
+        
+            dialog = PythonVersionDialog(self, version_manager)
+            dialog.exec()
+        
+        except Exception as e:
+            print(f"❌ Erro ao abrir gerenciador de versões: {e}")
+            QMessageBox.critical(
+                self, 
+                "Erro", 
+                f"Não foi possível abrir o gerenciador de versões:\n{str(e)}"
+   	        )
     def open_advanced_find_similar(self):
         """Abre o localizador de textos similares aprimorado - CORRIGIDO"""
         try:
@@ -933,9 +1011,31 @@ class IDE(QMainWindow):
 
     def open_package_manager(self):
         """Abre o gerenciador de pacotes Python"""
-        dialog = PackageManagerDialog(self)
-        dialog.exec()
-
+        try:
+            # Verifica se pip está disponível
+            result = subprocess.run(
+                [sys.executable, "-m", "pip", "--version"],
+                capture_output=True, text=True, timeout=10
+            )
+        
+            if result.returncode != 0:
+                QMessageBox.warning(
+                    self, 
+                    "Pip não disponível", 
+                    "O pip não está disponível neste ambiente Python.\n\n"
+                    "Certifique-se de que o Python está instalado corretamente."
+                )
+                return
+            
+            dialog = PackageManagerDialog(self)
+            dialog.exec()
+        
+        except Exception as e:
+            QMessageBox.critical(
+                self, 
+                "Erro", 
+                f"Não foi possível abrir o gerenciador de pacotes:\n{str(e)}"
+            )
     def open_find_similar(self):
         """Abre a busca de textos similares"""
         current_editor = self.get_current_editor()
@@ -958,9 +1058,20 @@ class IDE(QMainWindow):
                 self, "Aviso", "Nenhum projeto aberto!")
 
     def open_theme_manager(self):
-        """Abre o gerenciador de temas"""
-        dialog = ThemeDialog(self.theme_manager, self)
-        dialog.exec()
+        """Abre o gerenciador de temas - VERSÃO SEGURA"""
+        try:
+            if not hasattr(self, 'theme_manager') or self.theme_manager is None:
+                QMessageBox.warning(self, "Aviso", 
+                                  "Gerenciador de temas não está disponível.\n\n"
+                                  "Recarregue o aplicativo ou verifique os logs.")
+                return
+                
+            dialog = ThemeDialog(self.theme_manager, self)
+            dialog.exec()
+        except Exception as e:
+            print(f"❌ Erro ao abrir gerenciador de temas: {e}")
+            QMessageBox.warning(self, "Erro", 
+                              f"Não foi possível abrir o gerenciador de temas:\n{str(e)}")
 
     def integrate_plugins(self):
         """Integra plugins na interface do IDE"""
@@ -2248,31 +2359,35 @@ Thumbs.db
                 self, "Erro", f"Não foi possível criar o projeto:\n{str(e)}")
 
     def set_project(self, project_path=None):
-        """Define o projeto atual com atualizações completas"""
-        if not project_path:
-            project_path = QFileDialog.getExistingDirectory(
-                self,
-                "Selecionar Projeto",
-                self.project_path or QDir.homePath()
-            )
+	    """Define projeto atual com suporte LSP - VERSÃO CORRIGIDA"""
+	    if not project_path:
+	        project_path = QFileDialog.getExistingDirectory(
+	            self,
+	            "Selecionar Projeto",
+	            self.project_path or QDir.homePath()
+	        )
 
-        if project_path:
-            self.project_path = project_path
-            self.project_info_label.setText(
-                f"📦 {os.path.basename(project_path)}")
+	    if project_path:
+	        self.project_path = project_path
+	        self.project_info_label.setText(f"📦 {os.path.basename(project_path)}")
 
-            # Atualiza explorador
-            self.refresh_explorer()
+        # CORREÇÃO: Verificar se LSP manager existe antes de usar
+	        if hasattr(self, 'lsp_manager') and self.lsp_manager is not None:
+	            try:
+	                self.lsp_manager.initialize(project_path)
+	                self.debug_log(f"LSP inicializado para projeto: {project_path}", "SUCCESS")
+	            except Exception as e:
+	                self.debug_log(f"Erro ao inicializar LSP: {e}", "ERROR")
+	        else:
+	            self.debug_log("LSP manager não disponível - continuando sem LSP", "WARNING")
 
-            # Ativa no terminal
-            self.activate_project()
+        # Atualiza explorador
+	        self.refresh_explorer()
 
-            # Preload de módulos em background
-            threading.Thread(target=module_cache_manager.preload_all_project_modules,
-                            args=(project_path,), daemon=True).start()
+        # Ativa no terminal
+	        self.activate_project()
 
-            self.statusBar().showMessage(
-                f"✅ Projeto carregado: {project_path}", 3000)
+	        self.statusBar().showMessage(f"✅ Projeto carregado: {project_path}", 3000)
 
     def configure_project(self):
         """Configura o projeto - placeholder para funcionalidade futura"""
@@ -3888,21 +4003,36 @@ Thumbs.db
     
 
     def setup_lsp_system(self):
-        """Configura sistema LSP no IDE"""
-        self.lsp_manager = LSPManager(self)
+	    """Configura sistema LSP no IDE - VERSÃO SEGURA"""
+	    try:
+        # CORREÇÃO: Verificar se a classe existe antes de instanciar
+	        from analysis.lsp_client import LSPManager
+        
+	        self.lsp_manager = LSPManager(self)
         
         # Conectar sinais existentes para LSP
-        self.tab_widget.currentChanged.connect(self._on_tab_changed_lsp)
+	        self.tab_widget.currentChanged.connect(self._on_tab_changed_lsp)
+        
+	        self.debug_log("Sistema LSP configurado", "SUCCESS")
+	    except ImportError as e:
+	        self.debug_log(f"LSP não disponível: {e}", "WARNING")
+	        self.lsp_manager = None
+	    except Exception as e:
+	        self.debug_log(f"Erro ao configurar LSP: {e}", "ERROR")
+	        self.lsp_manager = None
         
     def _on_tab_changed_lsp(self, index):
-        """Manipula mudança de aba para LSP"""
-        if index >= 0:
-            widget = self.tab_widget.widget(index)
-            if isinstance(widget, EnhancedCodeEditor) and widget.file_path:
-                # Atualizar LSP com documento atual
-                if self.lsp_manager:
-                    content = widget.toPlainText()
-                    self.lsp_manager.open_document(widget.file_path, content)
+	    """Manipula mudança de aba para LSP - VERSÃO SEGURA"""
+	    try:
+	        if (index >= 0 and hasattr(self, 'lsp_manager') and 
+	            self.lsp_manager is not None):
+	            widget = self.tab_widget.widget(index)
+	            if hasattr(widget, 'editor') and hasattr(widget, 'file_path') and widget.file_path:
+	                # Atualizar LSP com documento atual
+	                content = widget.editor.toPlainText()
+	                self.lsp_manager.open_document(widget.file_path, content)
+	    except Exception as e:
+	        self.debug_log(f"Erro em _on_tab_changed_lsp: {e}", "ERROR")
 
     def set_project(self, project_path=None):
         """Define projeto atual com suporte LSP"""
@@ -4251,115 +4381,268 @@ Thumbs.db
             self.debug_log(f"❌ Erro crítico no autocomplete: {e}", "ERROR")
             # Sistema mínimo de fallback
             self.autocomplete_widget = type('MinimalAutoComplete', (), {'enabled': False})()
-            
-    def setup_plugin_system(self):
-        """Inicializa o sistema de plugins de forma segura"""
+
+
+
+
+    def setup_plugins(self):
+        """Inicializa o sistema de plugins de forma robusta"""
         try:
-            # CORREÇÃO DEFINITIVA: Criar PluginInfo se não existir
-            try:
-                from core.plugin_system import PluginInfo
-            except ImportError:
-                # Criar definição local do PluginInfo
-                class PluginInfo:
-                    def __init__(self, name, version="1.0.0", description="", author="", plugin_class=None):
-                        self.name = name
-                        self.version = version
-                        self.description = description
-                        self.author = author
-                        self.plugin_class = plugin_class
+            # Adiciona o caminho dos plugins ao sys.path
+            plugins_path = Path(__file__).parent / "plugins"
+            if plugins_path.exists():
+                sys.path.insert(0, str(plugins_path))
+            
+            from plugins.plugin_manager import PluginManager
+            self.plugin_manager = PluginManager()
+            
+            # ✅ CORREÇÃO: Configura a instância do IDE nos plugins ANTES de carregar
+            if hasattr(self.plugin_manager, 'set_ide_instance'):
+                self.plugin_manager.set_ide_instance(self)
+            
+            # Carrega plugins automaticamente
+            loaded_count = self.plugin_manager.auto_load_plugins()
+            
+            if loaded_count > 0:
+                self.debug_log(f"✅ {loaded_count} plugins carregados", "SUCCESS")
+            
+                # ✅ CORREÇÃO: Integra ações dos plugins IMEDIATAMENTE
+                self.integrate_plugin_actions()
+            else:
+                self.debug_log("ℹ️ Nenhum plugin encontrado", "INFO")
+                
+        except Exception as e:
+            self.debug_log(f"❌ Erro ao configurar plugins: {e}", "ERROR")
+            self.plugin_manager = None
+        
+    def integrate_plugin_actions(self):
+        """Integra ações dos plugins na interface de forma robusta - VERSÃO CORRIGIDA"""
+        try:
+            if not hasattr(self, 'plugin_manager') or not self.plugin_manager:
+                self.debug_log("❌ Plugin manager não disponível", "ERROR")
+                return
+            
+            # Obtém ações dos plugins
+            all_plugin_actions = self.plugin_manager.get_all_plugin_actions()
+            
+            if not all_plugin_actions:
+                self.debug_log("ℹ️ Nenhuma ação de plugin encontrada", "INFO")
+                return
+            
+            self.debug_log(f"🔍 Procurando menu Ferramentas...", "INFO")
+            
+            # ✅ CORREÇÃO: Busca mais flexível pelo menu
+            tools_menu = None
+            menu_bar = self.menuBar()
+            
+            # Lista todos os menus para debug
+            for i, action in enumerate(menu_bar.actions()):
+                menu_text = action.text().replace('&', '')  # Remove aceleradores
+                self.debug_log(f"  Menu {i}: '{menu_text}'", "DEBUG")
+                
+                # Verifica várias possibilidades de nome
+                if any(name in menu_text for name in ["Ferramentas", "Tools", "🛠️"]):
+                    tools_menu = action.menu()
+                    self.debug_log(f"✅ Menu encontrado: '{menu_text}'", "SUCCESS")
+                    break
+            
+            if not tools_menu:
+                self.debug_log("❌ Menu Ferramentas não encontrado. Criando...", "WARNING")
+                # Cria o menu se não existir
+                tools_menu = self.menuBar().addMenu("🛠️ Ferramentas")
+            
+            # ✅ CORREÇÃO: Remove ações anteriores de plugins para evitar duplicação
+            actions_to_remove = []
+            for action in tools_menu.actions():
+                action_text = action.text()
+                # Remove separadores e cabeçalhos de plugins anteriores
+                if action_text in ["--- Plugins ---", "--- Plugins ---"] or action.isSeparator():
+                    actions_to_remove.append(action)
+            
+            for action in actions_to_remove:
+                tools_menu.removeAction(action)
+            
+            # ✅ CORREÇÃO: Adiciona separador apenas se houver outras ações no menu
+            if tools_menu.actions():
+                tools_menu.addSeparator()
+            
+            # Adiciona cabeçalho
+            header_action = self.create_action("--- Plugins ---", lambda: None)
+            header_action.setEnabled(False)
+            tools_menu.addAction(header_action)
+            
+            # Adiciona ações dos plugins
+            for action in all_plugin_actions:
+                tools_menu.addAction(action)
+                self.debug_log(f"✅ Ação integrada: {action.text()}", "DEBUG")
+            
+            self.debug_log(f"✅ {len(all_plugin_actions)} ações de plugins integradas no menu Ferramentas", "SUCCESS")
+            
+            # ✅ CORREÇÃO: Força atualização do menu
+            tools_menu.update()
+            
+        except Exception as e:
+            self.debug_log(f"❌ Erro ao integrar ações dos plugins: {e}", "ERROR")
+            import traceback
+            traceback.print_exc()
+    def create_action(self, text, callback, shortcut=None, tooltip=None):
+        """✅ ADICIONAR: Método auxiliar para criar ações"""
+        try:
+            from PySide6.QtGui import QAction, QKeySequence
+            action = QAction(text, self)
+            action.triggered.connect(callback)
+            if shortcut:
+                action.setShortcut(QKeySequence(shortcut))
+            if tooltip:
+                action.setToolTip(tooltip)
+            return action
+        except Exception as e:
+            print(f"❌ Erro ao criar ação: {e}")
+            return None
+        
+    def show_plugin_manager_dialog(self):
+        """Mostra informações básicas dos plugins"""
+        if not hasattr(self, 'plugin_manager') or not self.plugin_manager:
+            QMessageBox.information(self, "Plugins", "Sistema de plugins não disponível")
+            return
+        
+        try:
+            plugins_info = self.plugin_manager.get_plugins_info()
+        
+            # Usar a aba de output existente para mostrar informações
+            self.output_tabs.setCurrentWidget(self.output_text)
+            self.output_text.clear()
+            self.output_text.appendPlainText("🔌 GERENCIADOR DE PLUGINS")
+            self.output_text.appendPlainText("=" * 50)
+        
+            if not plugins_info:
+                self.output_text.appendPlainText("\nℹ️ Nenhum plugin carregado")
+            else:
+                for info in plugins_info:
+                    status_icon = "✅" if hasattr(info, 'status') and info.status.name == "LOADED" else "❌"
+                    name = getattr(info, 'name', 'Desconhecido')
+                    version = getattr(info, 'version', '1.0.0')
                     
-                    def __repr__(self):
-                        return f"PluginInfo(name='{self.name}', version='{self.version}')"
-                
-                # Adicionar ao módulo core.plugin_system
-                import core.plugin_system as plugin_module
-                plugin_module.PluginInfo = PluginInfo
-                globals()['PluginInfo'] = PluginInfo
-                
-                self.debug_log("PluginInfo criado localmente", "INFO")
+                    self.output_text.appendPlainText(f"\n{status_icon} {name} v{version}")
             
-            self.plugin_manager = PluginManager(self)
-            self.plugin_manager.load_plugins()
-            self.integrate_plugins()
-            self.debug_log("Sistema de plugins inicializado", "SUCCESS")
+            self.output_text.appendPlainText(f"\n📦 Total: {len(plugins_info)} plugins")
+        
+            # Usar statusBar() em vez de status_bar
+            self.statusBar().showMessage("Informações dos plugins carregadas", 3000)
+            
         except Exception as e:
-            self.debug_log(f"Erro ao inicializar plugins: {e}", "ERROR")
-    def setup_undo_redo_system(self):
-        """Configura o sistema de undo/redo"""
-        try:
-            # CORREÇÃO: Definir o método primeiro
-            def on_tab_changed_undo_redo(index):
-                """Atualiza undo/redo quando a aba muda"""
-                if index >= 0:
-                    QTimer.singleShot(50, self.update_undo_redo_actions)
-            
-            # Atribuir ao self
-            self.on_tab_changed_undo_redo = on_tab_changed_undo_redo
-            
-            # Conectar mudança de aba
-            self.tab_widget.currentChanged.connect(self.on_tab_changed_undo_redo)
-            self.debug_log("Sistema undo/redo configurado", "SUCCESS")
-        except Exception as e:
-            self.debug_log(f"Erro ao configurar undo/redo: {e}", "ERROR")
+            self.debug_log(f"Erro ao mostrar plugins: {e}", "ERROR")
     
-    def update_undo_redo_actions(self):
-        """Atualiza estado das ações undo/redo"""
+    def refresh_plugins(self):
+        """Atualiza plugins de forma segura"""
         try:
-            editor = self.get_current_editor()
-            if editor and hasattr(editor, 'document'):
-                # Aqui você pode atualizar a UI baseado na disponibilidade
-                undo_available = editor.document().isUndoAvailable()
-                redo_available = editor.document().isRedoAvailable()
-                
-                # Exemplo: atualizar status bar
-                status = f"Undo: {'✓' if undo_available else '✗'}, Redo: {'✓' if redo_available else '✗'}"
-                # self.statusBar().showMessage(status, 2000)
+            if not hasattr(self, 'plugin_manager') or not self.plugin_manager:
+                return
+            
+            # Recarrega plugins
+            loaded_count = self.plugin_manager.auto_load_plugins()
+            
+            if loaded_count > 0:
+                self.debug_log(f"{loaded_count} plugins recarregados", "SUCCESS")
+            else:
+                self.debug_log("Nenhum plugin encontrado", "INFO")
                 
         except Exception as e:
-            print(f"Erro ao atualizar ações undo/redo: {e}")
-    
-    def setup_indicators(self):
-        """Configura indicadores visuais do IDE"""
-        try:
-            # Configurar cores dos indicadores
-            self.indicator_colors = {
-                'current_line': QColor(45, 45, 48, 80),
-                'error': QColor(255, 0, 0, 50),
-                'warning': QColor(255, 255, 0, 50),
-                'info': QColor(0, 0, 255, 30)
-            }
-            self.debug_log("Indicadores visuais configurados", "SUCCESS")
-        except Exception as e:
-            self.debug_log(f"Erro ao configurar indicadores: {e}", "ERROR")
-    
-    def setup_scope_header(self):
-        """Configura o header de escopo (classe/função atual)"""
-        try:
-            # Conectar sinais para atualizar escopo
-            self.tab_widget.currentChanged.connect(self.update_scope_display)
-            self.debug_log("Header de escopo configurado", "SUCCESS")
-        except Exception as e:
-            self.debug_log(f"Erro ao configurar header de escopo: {e}", "ERROR")
-    
-    def initialize_delayed_systems(self):
-        """Inicializa sistemas que dependem da UI estar pronta"""
-        try:
-            self.debug_log("Inicializando sistemas tardios...", "INFO")
+            self.debug_log(f"Erro ao atualizar plugins: {e}", "ERROR")
+
+    def install_new_plugin(self):
+        """Instala um novo plugin - versão simplificada"""
+        # Diálogo para selecionar arquivo de plugin
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Instalar Plugin",
+            "",
+            "Arquivos Python (*.py);;Todos os arquivos (*)"
+        )
+        
+        if file_path:
+            try:
+                # Copia o arquivo para a pasta de plugins
+                plugins_dir = Path(__file__).parent.parent / "plugins"
+                plugin_name = Path(file_path).name
+                dest_path = plugins_dir / plugin_name
+                
+                shutil.copy2(file_path, dest_path)
             
-            self.setup_plugin_system()
-            self.setup_undo_redo_system()
-            self.setup_indicators()
-            self.setup_scope_header()
+                # Recarrega plugins
+                self.refresh_plugins()
             
-            # Parse de argumentos de linha de comando
-            self.parse_command_line_args()
+                QMessageBox.information(self, "Sucesso", f"Plugin {plugin_name} instalado com sucesso!")
             
-            self.debug_log("Todos os sistemas inicializados", "SUCCESS")
-        except Exception as e:
-            self.debug_log(f"Erro na inicialização tardia: {e}", "ERROR")
-    
+            except Exception as e:
+                QMessageBox.warning(self, "Erro", f"Erro ao instalar plugin: {str(e)}")
+
+
+
     def exception_hook(self, exctype, value, tb):
-        """Captura exceções globais"""
-        self.debug_log(f"ERRO GLOBAL: {exctype.__name__}: {value}", "ERROR")
-        traceback.print_exception(exctype, value, tb)
-        sys.__excepthook__(exctype, value, tb)
+        """Captura exceções globais de forma segura"""
+        try:
+            error_msg = f"ERRO GLOBAL: {exctype.__name__}: {value}"
+            self.debug_log(error_msg, "ERROR")
+            
+            # Imprime o traceback completo no console
+            import traceback
+            traceback.print_exception(exctype, value, tb)
+            
+            # Chama o hook padrão do sistema
+            sys.__excepthook__(exctype, value, tb)
+            
+        except Exception as e:
+            # Fallback seguro se algo der errado no próprio exception handler
+            print(f"❌ ERRO CRÍTICO no exception_hook: {e}")
+            sys.__excepthook__(exctype, value, tb)
+
+
+
+    def _setup_initial_prompt(self):
+        """Configura prompt inicial no terminal - MÉTODO FALTANTE"""
+        if hasattr(self, 'terminal_text'):
+            try:
+                self.terminal_text.setPlainText("Py Dragon Terminal - Digite 'help' para comandos\n\n")
+                self.terminal_text.input_start = self.terminal_text.textCursor().position()
+                
+                # Adiciona prompt inicial
+                prompt = self.get_prompt()
+                self.terminal_text.insertPlainText(prompt)
+                self.terminal_text.input_start += len(prompt)
+                
+            except Exception as e:
+                print(f"Erro no prompt inicial: {e}")
+
+    def append_output(self, data):
+        """Adiciona output ao terminal - MÉTODO FALTANTE"""
+        if hasattr(self, 'terminal_text') and self.terminal_text:
+            try:
+                cursor = self.terminal_text.textCursor()
+                cursor.movePosition(QTextCursor.End)
+                cursor.insertText(data)
+                self.terminal_text.setTextCursor(cursor)
+                self.terminal_text.ensureCursorVisible()
+            except Exception as e:
+                print(f"Erro ao adicionar output: {e}")
+    def test_plugins_system(self):
+        """Testa o sistema de plugins"""
+        try:
+            if not hasattr(self, 'plugin_manager') or not self.plugin_manager:
+                print("❌ Plugin manager não disponível")
+                return
+        
+            plugins_info = self.plugin_manager.get_plugins_info()
+            print(f"📦 Plugins carregados: {len(plugins_info)}")
+            
+            for info in plugins_info:
+                print(f"  - {info.name}: {info.status.value}")
+                
+            actions = self.plugin_manager.get_all_plugin_actions()
+            print(f"🛠️ Ações disponíveis: {len(actions)}")
+            
+            for action in actions:
+                print(f"  - {action.text()}")
+                
+        except Exception as e:
+            print(f"❌ Erro no teste de plugins: {e}")

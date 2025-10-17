@@ -1,7 +1,9 @@
-from PySide6.QtWidgets import QListWidget, QListWidgetItem
-from PySide6.QtCore import QThread, Signal, Qt
-from PySide6.QtGui import QIcon, QFont
-
+from PySide6.QtWidgets import QListWidget, QListWidgetItem, QApplication
+from PySide6.QtCore import QThread, Signal, Qt, QTimer, QPoint
+from PySide6.QtGui import QIcon, QFont, QColor, QPalette, QTextCursor  # ✅ IMPORT ADICIONADA
+import threading
+import os
+import re
 
 class FloatingAutoCompleteWidget(QListWidget):
     def __init__(self, parent=None):
@@ -162,22 +164,22 @@ class FloatingAutoCompleteWidget(QListWidget):
 
             
     def insert_completion(self, item=None):
-        """Insere a sugestão selecionada no editor"""
+        """Insere a sugestão selecionada no editor - VERSÃO CORRIGIDA"""
         if not self.current_editor:
             return
-            
+        
         if item is None:
             item = self.currentItem()
-            
+        
         if item:
             completion = item.text()
             cursor = self.current_editor.textCursor()
-            
+        
             # Remove a parte já digitada (se houver)
             current_line = cursor.block().text()
-            cursor.select(QTextCursor.WordUnderCursor)
+            cursor.select(QTextCursor.WordUnderCursor)  # ✅ AGORA FUNCIONA
             current_word = cursor.selectedText()
-            
+        
             # Remove parênteses se já existirem em funções
             if completion.endswith('()') and current_word:
                 # Se já tem parênteses, remove da completion
@@ -189,15 +191,15 @@ class FloatingAutoCompleteWidget(QListWidget):
             
             # Insere o texto
             if current_word:
-                # Substitui a palavra atual
+            # Substitui a palavra atual
                 cursor.insertText(completion)
             else:
-                # Insere normalmente
+            # Insere normalmente
                 cursor.insertText(completion)
-                
-            # Foca no editor novamente
-            self.current_editor.setFocus()
             
+        # Foca no editor novamente
+            self.current_editor.setFocus()
+        
         self.hide()
             
     def get_icon(self, icon_type):

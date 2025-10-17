@@ -1,9 +1,14 @@
+import logging
+
+from queue import Queue
+
 from PySide6.QtCore import QProcess, QThread, Signal
 import json
 import subprocess
-
-
-
+import sys
+import threading
+from threading import Thread 
+from queue import Queue  # Para Python 3
 
 
 

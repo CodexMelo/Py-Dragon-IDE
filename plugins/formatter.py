@@ -1,133 +1,94 @@
-from PySide6.QtWidgets import QDialog, QVBoxLayout, QComboBox
-from PySide6.QtCore import QTimer
-from core.plugin_system import PluginBase
-import autopep8
+from plugins.plugin_base import BasePlugin, PluginInfo, PluginStatus, PluginType
 
-
-
-class CodeFormatterPlugin(PluginBase):
-    """Plugin de formatação de código avançada"""
-
-    def __init__(self, ide_instance):
-        super().__init__(ide_instance)
-        self.info = PluginInfo(
-            name="Code Formatter",
+class CodeFormatterPlugin(BasePlugin):
+    """Plugin para formatação de código com múltiplas ferramentas"""
+    
+    def __init__(self):
+        super().__init__()
+        self.plugin_info = PluginInfo(
+            name="CodeFormatterPlugin",
             version="1.1.0",
+            description="Suporte a autopep8, black e outras ferramentas de formatação",
             author="Py Dragon Team",
-            description="Formatação automática de código com múltiplos formatadores"
+            plugin_type=PluginType.TOOL,
+            status=PluginStatus.UNLOADED,
+            dependencies=["autopep8"]
         )
-
-    def initialize(self):
-        self.formatters = {
-            'Python': self.format_python,
-            'JavaScript': self.format_javascript,
-            'HTML': self.format_html,
-            'CSS': self.format_css
-        }
-
-    def shutdown(self):
-        pass
-
-    def get_actions(self):
-        format_action = QAction(
-            "🚀 Formatador Avançado", self.ide)
-        format_action.triggered.connect(self.show_format_dialog)
-        return [format_action]
-
-    def get_menu_items(self):
-        return {
-            "Ferramentas": self.get_actions()
-        }
-
-    def show_format_dialog(self):
-        """Mostra diálogo de formatação avançada"""
-        dialog = FormatDialog(self.ide, self.formatters)
-        dialog.exec()
-
-    def format_python(self, code):
-        """Formata código Python"""
+    
+    def initialize(self) -> bool:
         try:
-            # Tenta black primeiro
-            result = subprocess.run(
-                [sys.executable, "-m",
-                 "black", "--code", code],
-                capture_output=True, text=True, timeout=10
-            )
-            if result.returncode == 0:
-                return result.stdout
-
-            # Fallback para autopep8
-            result = subprocess.run(
-                [sys.executable, "-m",
-                 "autopep8", "-"],
-                input=code, capture_output=True, text=True, timeout=10
-            )
-            if result.returncode == 0:
-                return result.stdout
-
-            return code
-        except:
-            return code
-
-    def format_javascript(self, code):
-        """Formata código JavaScript (placeholder)"""
-        # Implementação com prettier ou similar
-        return code
-
-    def format_html(self, code):
-        """Formata HTML (placeholder)"""
-        return code
-
-    def format_css(self, code):
-        """Formata CSS (placeholder)"""
-        return code
-
-
-
-class FormatDialog(QDialog):
-    def __init__(self, parent, formatters):
-        super().__init__(parent)
-        self.formatters = formatters
-        self.setup_ui()
-
-    def setup_ui(self):
-        self.setWindowTitle("Formatador de Código")
-        self.setGeometry(300, 300, 500, 400)
-
-        layout = QVBoxLayout()
-
-        # Seletor de formatador
-        layout.addWidget(QLabel("Selecione o formatador:"))
-        self.format_combo = QComboBox()
-        self.format_combo.addItems(self.formatters.keys())
-        layout.addWidget(self.format_combo)
-
-        # Preview
-        layout.addWidget(QLabel("Pré-visualização:"))
-        self.preview_edit = QTextEdit()
-        self.preview_edit.setFont(QFont("Consolas", 1010))
-        layout.addWidget(self.preview_edit)
-
-        # Botões
-        btn_layout = QHBoxLayout()
-        self.format_btn = QPushButton("Formatar")
-        self.format_btn.clicked.connect(self.format_code)
-        btn_layout.addWidget(self.format_btn)
-
-        self.cancel_btn = QPushButton("Cancelar")
-        self.cancel_btn.clicked.connect(self.reject)
-        btn_layout.addWidget(self.cancel_btn)
-
-        layout.addLayout(btn_layout)
-        self.setLayout(layout)
-
-    def format_code(self):
-        formatter_name = self.format_combo.currentText()
-        formatter = self.formatters[formatter_name]
-
-        current_editor = self.parent().get_current_editor()
-        if current_editor:
-            code = current_editor.toPlainText()
-            formatted = formatter(code)
-            self.preview_edit.setPlainText(
-                formatted)
+            # Verifica dependências
+            deps_ok = self.check_dependencies()
+            
+            # Configura ações
+            self.setup_actions()
+            
+            self.plugin_info.status = PluginStatus.LOADED
+            print(f"✅ {self.plugin_info.name} inicializado")
+            return True
+        except Exception as e:
+            print(f"❌ Erro ao inicializar CodeFormatterPlugin: {e}")
+            self.plugin_info.status = PluginStatus.ERROR
+            self.plugin_info.error_message = str(e)
+            return False
+    
+    def check_dependencies(self):
+        """Verifica se as dependências estão instaladas"""
+        try:
+            import autopep8
+            return True
+        except ImportError:
+            self.show_message("⚠️ autopep8 não instalado. Use: pip install autopep8")
+            return False
+    
+    def setup_actions(self):
+        """Configura as ações do plugin"""
+        # Ação para formatar com autopep8
+        format_action = self.create_action(
+            "📐 Format com autopep8",
+            self.format_with_autopep8,
+            "Ctrl+Shift+F",
+            "Formata código Python usando autopep8"
+        )
+        
+        # Ação para verificar estilo
+        check_action = self.create_action(
+            "🔍 Verificar Estilo",
+            self.check_code_style,
+            tooltip="Verifica estilo do código"
+        )
+        
+        if format_action:
+            self.actions.append(format_action)
+        if check_action:
+            self.actions.append(check_action)
+    
+    def format_with_autopep8(self):
+        """Formata código usando autopep8"""
+        try:
+            if self.ide_instance and hasattr(self.ide_instance, 'get_current_editor'):
+                editor = self.ide_instance.get_current_editor()
+                if editor and hasattr(editor, 'toPlainText'):
+                    import autopep8
+                    code = editor.toPlainText()
+                    formatted_code = autopep8.fix_code(code)
+                    editor.setPlainText(formatted_code)
+                    self.show_message("✅ Código formatado com autopep8!")
+                else:
+                    self.show_message("❌ Nenhum editor ativo")
+            else:
+                self.show_message("❌ IDE não disponível")
+        except ImportError:
+            self.show_message("❌ autopep8 não instalado. Use: pip install autopep8")
+        except Exception as e:
+            self.show_message(f"❌ Erro ao formatar código: {e}")
+    
+    def check_code_style(self):
+        """Verifica estilo do código"""
+        self.show_message("🔍 Verificando estilo do código...")
+        # Implementação futura para verificação de estilo
+    
+    def show_message(self, message):
+        """Mostra mensagem na statusbar do IDE"""
+        if self.ide_instance and hasattr(self.ide_instance, 'statusBar'):
+            self.ide_instance.statusBar().showMessage(message, 3000)

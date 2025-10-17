@@ -577,22 +577,78 @@ class UnifiedCodeEditor(QPlainTextEdit):
     # ===== MÉTODOS DE FORMATAÇÃO =====
     
     def fix_indentation(self):
-        """Corrige indentação do código"""
+        """Corrige indentação do código Python de forma inteligente"""
         try:
+            cursor = self.textCursor()
+            cursor.beginEditBlock()
+            
+            # Salva posição do cursor
+            original_position = cursor.position()
+            
             text = self.toPlainText()
             lines = text.split('\n')
             fixed_lines = []
+            indent_stack = [0]  # Pilha de níveis de indentação
             
-            for line in lines:
+            for i, line in enumerate(lines):
                 stripped = line.lstrip()
-                indent_level = (len(line) - len(stripped)) // 4
-                fixed_line = '    ' * indent_level + stripped
-                fixed_lines.append(fixed_line)
+                current_indent = len(line) - len(stripped)
                 
-            self.setPlainText('\n'.join(fixed_lines))
+                # Remove indentação antiga
+                clean_line = stripped
+                
+                # Calcula indentação correta baseada no contexto
+                if i > 0:
+                    prev_line = lines[i-1].rstrip()
+                    
+                    # Diminui indentação após blocos que terminam
+                    if (prev_line.endswith('pass') or 
+                        prev_line.endswith('return') or
+                        prev_line.endswith('break') or
+                        prev_line.endswith('continue')):
+                        if indent_stack and current_indent <= indent_stack[-1]:
+                            indent_stack.pop()
+                    
+                    # Aumenta indentação após dois pontos
+                    if prev_line.endswith(':'):
+                        new_indent = (len(prev_line) - len(prev_line.lstrip())) + 4
+                        indent_stack.append(new_indent)
+                
+                # Aplica indentação atual da pilha
+                current_indent_level = indent_stack[-1] if indent_stack else 0
+                fixed_line = (' ' * current_indent_level) + clean_line
+                fixed_lines.append(fixed_line)
+            
+            # Aplica texto corrigido
+            new_text = '\n'.join(fixed_lines)
+            self.setPlainText(new_text)
+            
+            # Restaura posição do cursor aproximadamente
+            new_cursor = self.textCursor()
+            new_cursor.setPosition(min(original_position, len(new_text)))
+            self.setTextCursor(new_cursor)
+            
+            cursor.endEditBlock()
             
         except Exception as e:
             print(f"Erro ao corrigir indentação: {e}")
+            # Fallback básico
+            self.basic_fix_indentation()
+
+    def basic_fix_indentation(self):
+        """Correção básica de indentação como fallback"""
+        text = self.toPlainText()
+        lines = text.split('\n')
+        fixed_lines = []
+        
+        for line in lines:
+            stripped = line.lstrip()
+            # Converte tabs para 4 espaços e mantém indentação existente
+            indent_level = (len(line) - len(stripped)) // 4
+            fixed_line = '    ' * indent_level + stripped
+            fixed_lines.append(fixed_line)
+            
+        self.setPlainText('\n'.join(fixed_lines))   
 
     def clean_trailing_whitespace(self):
         """Remove espaços em branco no final das linhas"""
@@ -612,15 +668,77 @@ class UnifiedCodeEditor(QPlainTextEdit):
         cursor.endEditBlock()
 
     # ===== MÉTODOS DE NAVEGAÇÃO =====
-    
+    def get_python_block_structure(self):
+        """Analisa a estrutura de blocos do código Python"""
+        text = self.toPlainText()
+        lines = text.split('\n')
+        structure = []
+        indent_stack = [0]
+        
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if not stripped or stripped.startswith('#'):
+                continue
+                
+            current_indent = len(line) - len(line.lstrip())
+            
+            # Detecta início de blocos
+            if stripped.endswith(':'):
+                block_type = self.detect_block_type(stripped)
+                structure.append({
+                    'line': i + 1,
+                    'type': block_type,
+                    'name': self.extract_block_name(stripped, block_type),
+                    'indent': current_indent,
+                    'end_line': None  # Será preenchido depois
+                })
+                
+                # Adiciona novo nível de indentação
+                indent_stack.append(current_indent + 4)
+        
+        return structure
+
+    def detect_block_type(self, line):
+        """Detecta o tipo de bloco Python"""
+        line_clean = line.strip()
+        
+        if line_clean.startswith('class '):
+            return 'class'
+        elif line_clean.startswith('def '):
+            return 'function'
+        elif line_clean.startswith('async def '):
+            return 'async_function'
+        elif line_clean.startswith('if '):
+            return 'if'
+        elif line_clean.startswith('for '):
+            return 'for'
+        elif line_clean.startswith('while '):
+            return 'while'
+        elif line_clean.startswith('with '):
+            return 'with'
+        elif line_clean.startswith('try:'):
+            return 'try'
+        elif line_clean.startswith('except'):
+            return 'except'
+        else:
+            return 'block'
+
+    def extract_block_name(self, line, block_type):
+        """Extrai o nome do bloco"""
+        if block_type == 'class':
+            return line.split('class ')[1].split('(')[0].split(':')[0].strip()
+        elif block_type in ['function', 'async_function']:
+            return line.split('def ')[1].split('(')[0].strip()
+        else:
+            return line.split(':')[0].strip()
     def goto_line(self, line_number):
         """Vai para uma linha específica"""
         if line_number < 1:
             return
-            
+                
         document = self.document()
         block = document.findBlockByLineNumber(line_number - 1)
-        
+            
         if block.isValid():
             cursor = self.textCursor()
             cursor.setPosition(block.position())
@@ -666,7 +784,7 @@ class UnifiedCodeEditor(QPlainTextEdit):
     # ===== MÉTODOS DE CONTEXTO E TECLADO =====
     
     def show_context_menu(self, position):
-        """Menu de contexto personalizado"""
+        """Menu de contexto personalizado com opções de indentação"""
         menu = QMenu(self)
         
         # Ações de edição
@@ -692,18 +810,32 @@ class UnifiedCodeEditor(QPlainTextEdit):
         paste_action.triggered.connect(self.paste)
         
         select_all_action = menu.addAction("🔲 Selecionar tudo (Ctrl+A)")
-        select_all_action.triggered.connect(self.selectAll)
+        select_all_action.triggered.connect(self.selectAll())
         
         menu.addSeparator()
         
-        # Ações específicas do editor
-        fix_indent_action = menu.addAction("📐 Corrigir indentação")
+        # Ações específicas do editor - NOVAS OPÇÕES
+        fix_indent_action = menu.addAction("📐 Corrigir indentação (Ctrl+I)")
         fix_indent_action.triggered.connect(self.fix_indentation)
+        
+        increase_indent_action = menu.addAction("➡️ Aumentar indentação (Tab)")
+        increase_indent_action.triggered.connect(self.increase_indentation)
+        
+        decrease_indent_action = menu.addAction("⬅️ Diminuir indentação (Shift+Tab)")
+        decrease_indent_action.triggered.connect(self.decrease_indentation)
         
         auto_complete_action = menu.addAction("🎯 Auto-completar (Ctrl+Space)")
         auto_complete_action.triggered.connect(self.show_autocomplete)
         
         menu.exec(self.mapToGlobal(position))
+
+    def increase_indentation(self):
+        """Aumenta indentação da seleção ou linha atual"""
+        cursor = self.textCursor()
+        if cursor.hasSelection():
+            self.auto_indent_selection()
+        else:
+            cursor.insertText("    ")
 
     def trigger_autocomplete(self):
         """Dispara o autocomplete após digitação - VERSÃO SIMPLIFICADA"""
@@ -922,67 +1054,215 @@ class UnifiedCodeEditor(QPlainTextEdit):
             print(f"❌ Erro no unified suggestions: {e}")
             return self._get_fallback_suggestions()
 
+    # Substitua o método keyPressEvent existente:
+
     def keyPressEvent(self, event):
-        """Manipula eventos de teclado unificados"""
-        try:
-            key = event.key()
-            modifiers = event.modifiers()
-            text = event.text()
+            try:
+                key = event.key()
+                modifiers = event.modifiers()
+                text = event.text()
             
             # Captura a tecla pressionada
-            self.last_key_pressed = key
+                self.last_key_pressed = key
             
             # Ctrl+Space - Força autocomplete
-            if modifiers == Qt.ControlModifier and key == Qt.Key_Space:
-                self.force_show_autocomplete = True
-                self.show_autocomplete()
-                event.accept()
-                return
+                if modifiers == Qt.ControlModifier and key == Qt.Key_Space:
+                    self.force_show_autocomplete = True
+                    self.show_autocomplete()
+                    event.accept()
+                    return
                 
             # Ctrl+I - Corrige indentação
-            elif modifiers == Qt.ControlModifier and key == Qt.Key_I:
-                self.fix_indentation()
-                event.accept()
-                return  
+                elif modifiers == Qt.ControlModifier and key == Qt.Key_I:
+                    self.fix_indentation()
+                    event.accept()
+                    return  
                 
-            # Escape - desativa autocomplete temporariamente
-            elif key == Qt.Key_Escape:
-                if self.autocomplete_widget.isVisible():
-                    self.autocomplete_widget.hide()
+            # Tab com Shift - diminui indentação
+                elif modifiers == Qt.ShiftModifier and key == Qt.Key_Tab:
+                    self.decrease_indentation()
                     event.accept()
                     return
+                
+            # Tab normal - aumenta indentação
+                elif key == Qt.Key_Tab:
+                    if self.handle_indentation(event):
+                        event.accept()
+                        return
+                    
+            # Enter - indentação inteligente
+                elif key in [Qt.Key_Return, Qt.Key_Enter]:
+                    if self.handle_indentation(event):
+                        event.accept()
+                        return
+                    
+            # Escape - desativa autocomplete temporariamente
+                elif key == Qt.Key_Escape:
+                    if self.autocomplete_widget.isVisible():
+                        self.autocomplete_widget.hide()
+                        event.accept()
+                        return
                 # Se autocomplete não está visível, reativa para próxima letra
-                self.autocomplete_widget.set_enabled(True)
+                    self.autocomplete_widget.set_enabled(True)
                 
             # Letras e caracteres que devem ativar autocomplete
-            elif (len(text) == 1 and 
-                (text.isalpha() or text in ['.', '_']) and 
-                self.autocomplete_widget.enabled):
+                elif (len(text) == 1 and 
+                    (text.isalpha() or text in ['.', '_']) and 
+                    self.autocomplete_widget.enabled):
                 
                 # Processa a tecla normalmente primeiro
-                super().keyPressEvent(event)
+                    super().keyPressEvent(event)
                 
                 # CORREÇÃO: Usar o método correto
-                QTimer.singleShot(50, self.trigger_autocomplete)
-                return
+                    QTimer.singleShot(50, self.trigger_autocomplete)
+                    return
                 
             # Enter/Tab com autocomplete visível
-            elif key in [Qt.Key_Return, Qt.Key_Enter, Qt.Key_Tab]:
-                if self.autocomplete_widget.isVisible():
-                    self.autocomplete_widget.insert_completion()
-                    event.accept()
-                    return
+                elif key in [Qt.Key_Return, Qt.Key_Enter, Qt.Key_Tab]:
+                    if self.autocomplete_widget.isVisible():
+                        self.autocomplete_widget.insert_completion()
+                        event.accept()
+                        return
                     
             # Teclas normais
-            super().keyPressEvent(event)
+                super().keyPressEvent(event)
             
             # Para outras teclas, esconde o autocomplete
-            if self.autocomplete_widget.isVisible():
-                self.autocomplete_widget.hide()
+                if self.autocomplete_widget.isVisible():
+                    self.autocomplete_widget.hide()
             
+            except Exception as e:
+                print(f"Erro no keyPressEvent: {e}")
+                super().keyPressEvent(event)
+
+
+    def handle_indentation(self, event):
+            try:
+                key = event.key()
+                cursor = self.textCursor()
+                current_block = cursor.block()
+                current_text = current_block.text()
+                cursor_position = cursor.positionInBlock()
+            
+            # Tab - aumenta indentação
+                if key == Qt.Key_Tab and not cursor.hasSelection():
+                # Se está no início da linha ou em espaço em branco, insere tab
+                    if cursor_position <= len(current_text) - len(current_text.lstrip()):
+                        cursor.insertText("    ")
+                        return True
+                    else:
+                    # Tab normal
+                        cursor.insertText("    ")
+                        return True
+                    
+            # Shift+Tab - diminui indentação
+                elif key == Qt.Key_Backtab:
+                    self.decrease_indentation()
+                    return True
+                
+            # Enter - mantém indentação automaticamente
+                elif key in [Qt.Key_Return, Qt.Key_Enter]:
+                    return self.handle_enter_key()
+                
+            except Exception as e:
+                print(f"Erro na indentação: {e}")
+        
+                return False
+
+    def handle_enter_key(self):
+        
+            cursor = self.textCursor()
+            current_block = cursor.block()
+            current_text = current_block.text()
+        
+        # Calcula indentação atual
+            indent_level = len(current_text) - len(current_text.lstrip())
+            current_indent = " " * indent_level
+        
+        # Verifica contexto para indentação adicional
+            additional_indent = self.get_additional_indent(current_text.rstrip())
+        
+            cursor.insertText("\n" + current_indent + additional_indent)
+            return True
+    def decrease_indentation(self):
+        cursor = self.textCursor()
+        current_block = cursor.block()
+        current_text = current_block.text()
+        
+        # Encontra espaços iniciais para remover
+        leading_spaces = len(current_text) - len(current_text.lstrip())
+        if leading_spaces >= 4:
+            # Remove 4 espaços
+            cursor.movePosition(QTextCursor.StartOfLine)
+            cursor.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, 4)
+            cursor.removeSelectedText()
+        elif leading_spaces > 0:
+            # Remove todos os espaços restantes
+            cursor.movePosition(QTextCursor.StartOfLine)
+            cursor.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, leading_spaces)
+        cursor.removeSelectedText()
+    def get_additional_indent(self, line_text):
+        """Determina indentação adicional baseada no contexto Python"""
+        try:
+            if not line_text:
+                return ""
+                
+            line_clean = line_text.rstrip()
+            
+            # Casos que precisam de indentação adicional
+            if any(line_clean.endswith(suffix) for suffix in [':', '(', '[', '{']):
+                return "    "  # 4 espaços
+            
+            # Casos especiais para Python
+            python_keywords = ['def ', 'class ', 'if ', 'elif ', 'else:', 'for ', 'while ', 'try:', 'except', 'finally:', 'with ']
+            if any(line_clean.startswith(keyword) for keyword in python_keywords):
+                return "    "
+            
+            return ""
         except Exception as e:
-            print(f"Erro no keyPressEvent: {e}")
-            super().keyPressEvent(event)
+            print(f"Erro ao determinar indentação adicional: {e}")
+            return ""
+    
+	
+
+    def auto_indent_selection(self):
+        """Aplica indentação automática à seleção"""
+        cursor = self.textCursor()
+        if not cursor.hasSelection():
+            return
+        
+        start = cursor.selectionStart()
+        end = cursor.selectionEnd()
+        
+        cursor.beginEditBlock()
+        
+        # Itera pelas linhas selecionadas
+        temp_cursor = QTextCursor(cursor)
+        temp_cursor.setPosition(start)
+        temp_cursor.movePosition(QTextCursor.StartOfLine)
+        
+        while temp_cursor.position() <= end:
+            block = temp_cursor.block()
+            if block.isValid():
+                line_text = block.text()
+                # Adiciona 4 espaços no início
+                temp_cursor.movePosition(QTextCursor.StartOfLine)
+                temp_cursor.insertText("    " + line_text.lstrip())
+                temp_cursor.movePosition(QTextCursor.Down)
+                temp_cursor.movePosition(QTextCursor.StartOfLine)
+            else:
+                break
+        
+        cursor.endEditBlock()
+
+
+
+
+
+
+
+
+
 
 
 # ... (o restante do código para EnhancedCodeEditor e EditorTab permanece similar)
@@ -1789,3 +2069,6 @@ class EditorTab(QWidget):
     def get_current_editor(self):
         """Retorna o editor deste tab"""
         return self.editor
+
+
+

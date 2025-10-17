@@ -1,11 +1,12 @@
+# ===== IMPORTS DO PYSIDE6 =====
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QComboBox, 
     QLineEdit, QTabWidget, QListWidget, QGroupBox, QCheckBox, 
     QProgressBar, QProgressDialog, QInputDialog, QMessageBox,
-    QTextEdit, QPlainTextEdit
+    QTextEdit, QPlainTextEdit, QWidget, QListWidgetItem
 )
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QTextCursor, QColor, QFont, QFontDatabase
+from PySide6.QtGui import QTextCursor, QColor, QFont, QFontDatabase, QTextCharFormat
 
 # ===== IMPORTS DO SISTEMA =====
 import os
@@ -14,8 +15,18 @@ import re
 import subprocess
 import zipfile
 import shutil
+import json  # ADICIONADO
 
-
+# ✅ IMPORTE CORRETO DO VERSION MANAGER
+try:
+    from ide.core.version_manager import PythonVersionManager
+    VERSION_MANAGER_AVAILABLE = True
+except ImportError as e:
+    print(f"⚠️ Version manager não disponível: {e}")
+    VERSION_MANAGER_AVAILABLE = False
+    
+    
+    
 class DeployDialog(QDialog):
     def __init__(self, parent, project_path):
         super().__init__(parent)
@@ -645,144 +656,275 @@ class FindSimilarDialog(QDialog):
                 self, "Erro", f"Erro no padrão de busca: {str(e)}")
 
 
+
 class PythonVersionDialog(QDialog):
-    def __init__(self, version_manager, parent=None):
+    def __init__(self, parent=None, version_manager=None):
         super().__init__(parent)
-        self.version_manager = version_manager
-        self.setWindowTitle("🐍 Gerenciador de Versões Python")
-        self.setGeometry(300, 300, 800, 600)
+        
+        # ✅ INICIALIZAÇÃO CORRETA DO VERSION MANAGER
+        if version_manager is not None:
+            self.version_manager = version_manager
+        elif VERSION_MANAGER_AVAILABLE:
+            try:
+                self.version_manager = PythonVersionManager()
+            except Exception as e:
+                print(f"❌ Erro ao criar version manager: {e}")
+                self.version_manager = None
+        else:
+            self.version_manager = None
+            
         self.setup_ui()
+        
+        # ✅ CARREGA AS VERSÕES SE O MANAGER ESTIVER DISPONÍVEL
+        if self.version_manager:
+            self.refresh_installed_versions()
 
     def setup_ui(self):
-        layout = QVBoxLayout()
-
+        """Configura a interface do diálogo"""
+        self.setWindowTitle("🐍 Gerenciador de Versões Python")
+        self.setFixedSize(800, 600)
+        
+        layout = QVBoxLayout(self)
+        
+        # ✅ VERIFICA SE O VERSION MANAGER ESTÁ DISPONÍVEL
+        if not self.version_manager:
+            self.setup_fallback_ui()
+            return
+            
+        # Título
+        title = QLabel("Gerenciador de Versões Python")
+        title.setStyleSheet("font-size: 16px; font-weight: bold; color: #2E86AB;")
+        title.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title)
+        
         # Abas
-        tabs = QTabWidget()
-
-        # Aba: Versões Instaladas
-        installed_tab = QWidget()
-        installed_layout = QVBoxLayout()
-
-        # Lista de versões instaladas
-        self.installed_list = QListWidget()
-        self.refresh_installed_versions()
-        installed_layout.addWidget(
-            QLabel("Versões Python Instaladas:"))
-        installed_layout.addWidget(self.installed_list)
-
-        # Botões para versões instaladas
-        installed_buttons = QHBoxLayout()
-        self.set_default_btn = QPushButton(
-            "Definir como Padrão")
-        self.set_default_btn.clicked.connect(
-            self.set_default_version)
-        installed_buttons.addWidget(self.set_default_btn)
-
-        self.refresh_btn = QPushButton("🔄 Atualizar Lista")
-        self.refresh_btn.clicked.connect(
-            self.refresh_installed_versions)
-        installed_buttons.addWidget(self.refresh_btn)
-
-        installed_layout.addLayout(installed_buttons)
-        installed_tab.setLayout(installed_layout)
-
-        # Aba: Download de Versões
-        download_tab = QWidget()
-        download_layout = QVBoxLayout()
-
-        download_layout.addWidget(
-            QLabel("Versões Disponíveis para Download:"))
-
-        self.available_list = QListWidget()
-        self.load_available_versions()
-        download_layout.addWidget(self.available_list)
-
-        download_buttons = QHBoxLayout()
-        self.download_btn = QPushButton(
-            "🌐 Abrir Página de Download")
-        self.download_btn.clicked.connect(
-            self.open_download_page)
-        download_buttons.addWidget(self.download_btn)
-
-        download_layout.addLayout(download_buttons)
-        download_tab.setLayout(download_layout)
-
-        tabs.addTab(installed_tab, "📥 Instaladas")
-        tabs.addTab(download_tab, "🌐 Download")
-
-        layout.addWidget(tabs)
-
-        # Botões de ação
+        self.tab_widget = QTabWidget()
+        
+        # Aba de versões instaladas
+        self.installed_tab = QWidget()
+        self.setup_installed_tab()
+        self.tab_widget.addTab(self.installed_tab, "📁 Versões Instaladas")
+        
+        # Aba de versões disponíveis
+        self.available_tab = QWidget()
+        self.setup_available_tab()
+        self.tab_widget.addTab(self.available_tab, "🌐 Versões Disponíveis")
+        
+        layout.addWidget(self.tab_widget)
+        
+        # Botões
         button_layout = QHBoxLayout()
-        self.close_btn = QPushButton("Fechar")
-        self.close_btn.clicked.connect(self.close)
-        button_layout.addWidget(self.close_btn)
-
+        
+        refresh_btn = QPushButton("🔄 Atualizar")
+        refresh_btn.clicked.connect(self.refresh_installed_versions)
+        button_layout.addWidget(refresh_btn)
+        
+        button_layout.addStretch()
+        
+        close_btn = QPushButton("Fechar")
+        close_btn.clicked.connect(self.reject)
+        button_layout.addWidget(close_btn)
+        
         layout.addLayout(button_layout)
+
+    def setup_installed_tab(self):
+        """Configura a aba de versões instaladas"""
+        layout = QVBoxLayout()
+        
+        # Título
+        title = QLabel("Versões Python Instaladas no Sistema")
+        title.setStyleSheet("font-weight: bold; color: #2E86AB;")
+        layout.addWidget(title)
+        
+        # Lista de versões
+        self.installed_versions_list = QListWidget()
+        self.installed_versions_list.itemDoubleClicked.connect(self.on_version_selected)
+        layout.addWidget(self.installed_versions_list)
+        
+        # Informações da versão selecionada
+        self.version_info = QLabel("Selecione uma versão para ver detalhes")
+        self.version_info.setWordWrap(True)
+        self.version_info.setStyleSheet(
+            "background-color: #F8F9FA; padding: 10px; border: 1px solid #DEE2E6; border-radius: 5px;"
+        )
+        layout.addWidget(self.version_info)
+        
+        # Botão para definir como padrão
+        self.set_default_btn = QPushButton("⭐ Definir como Padrão")
+        self.set_default_btn.clicked.connect(self.set_default_version)
+        self.set_default_btn.setEnabled(False)
+        layout.addWidget(self.set_default_btn)
+        
+        self.installed_tab.setLayout(layout)
+
+    def setup_available_tab(self):
+        """Configura a aba de versões disponíveis"""
+        layout = QVBoxLayout()
+        
+        # Título
+        title = QLabel("Versões Python Disponíveis para Download")
+        title.setStyleSheet("font-weight: bold; color: #2E86AB;")
+        layout.addWidget(title)
+        
+        # Lista de versões disponíveis
+        self.available_versions_list = QListWidget()
+        layout.addWidget(self.available_versions_list)
+        
+        # Informações
+        info_label = QLabel(
+            "Para instalar uma nova versão do Python, visite:\n"
+            "https://www.python.org/downloads/\n\n"
+            "Versões estáveis mais recentes:"
+        )
+        info_label.setWordWrap(True)
+        layout.addWidget(info_label)
+        
+        # Carrega versões disponíveis
+        self.load_available_versions()
+        
+        self.available_tab.setLayout(layout)
+
+    def setup_fallback_ui(self):
+        """Interface quando o gerenciador não está disponível"""
+        layout = QVBoxLayout()
+        
+        title = QLabel("🐍 Gerenciador de Versões Python")
+        title.setStyleSheet("font-size: 18px; font-weight: bold; color: #2E86AB;")
+        title.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title)
+        
+        # Widget de erro
+        error_widget = QWidget()
+        error_layout = QVBoxLayout(error_widget)
+        
+        error_icon = QLabel("⚠️")
+        error_icon.setStyleSheet("font-size: 48px;")
+        error_icon.setAlignment(Qt.AlignCenter)
+        error_layout.addWidget(error_icon)
+        
+        error_msg = QLabel("Gerenciador de versões não disponível")
+        error_msg.setStyleSheet("color: #DC3545; font-size: 16px; font-weight: bold;")
+        error_msg.setAlignment(Qt.AlignCenter)
+        error_layout.addWidget(error_msg)
+        
+        info_msg = QLabel(
+            "O sistema de gerenciamento de versões Python não pôde ser carregado.\n\n"
+            "Isso é normal em ambientes virtuais ou instalações limitadas.\n\n"
+            "Você pode:\n"
+            "• Usar a versão Python atual: " + sys.executable + "\n"
+            "• Instalar novas versões manualmente em python.org"
+        )
+        info_msg.setWordWrap(True)
+        info_msg.setAlignment(Qt.AlignCenter)
+        error_layout.addWidget(info_msg)
+        
+        layout.addWidget(error_widget)
+        
+        # Botão para fechar
+        close_btn = QPushButton("Fechar")
+        close_btn.clicked.connect(self.reject)
+        layout.addWidget(close_btn)
+        
         self.setLayout(layout)
 
     def refresh_installed_versions(self):
-        """Atualiza lista de versões instaladas"""
-        self.version_manager.scan_installed_versions()
-        self.installed_list.clear()
-
-        for version in self.version_manager.installed_versions:
-            item_text = f"{version['version']} - {version['path']}"
-            self.installed_list.addItem(item_text)
+        """Atualiza a lista de versões instaladas"""
+        if not self.version_manager:
+            return
+            
+        try:
+            self.installed_versions_list.clear()
+            
+            versions = self.version_manager.scan_installed_versions()
+            
+            if not versions:
+                self.installed_versions_list.addItem("Nenhuma versão Python encontrada")
+                return
+                
+            for version_info in versions:
+                item_text = f"{version_info['version']}\n{version_info['path']}"
+                item = QListWidgetItem(item_text)
+                
+                # Destaque para versão atual
+                if version_info.get('type') == 'current':
+                    item.setBackground(Qt.green)
+                    item.setForeground(Qt.white)
+                    item_text = f"⭐ {item_text} (Atual)"
+                    item.setText(item_text)
+                
+                self.installed_versions_list.addItem(item)
+                
+        except Exception as e:
+            self.installed_versions_list.addItem(f"Erro ao carregar versões: {str(e)}")
 
     def load_available_versions(self):
-        """Carrega versões disponíveis para download"""
-        versions = self.version_manager.get_available_versions()
-        self.available_list.clear()
+        """Carrega a lista de versões disponíveis"""
+        if not self.version_manager:
+            return
+            
+        try:
+            self.available_versions_list.clear()
+            
+            versions = self.version_manager.get_available_versions()
+            
+            for version_info in versions:
+                item_text = f"{version_info['version']}\n{version_info['url']}"
+                item = QListWidgetItem(item_text)
+                self.available_versions_list.addItem(item)
+                
+        except Exception as e:
+            self.available_versions_list.addItem(f"Erro ao carregar versões disponíveis: {str(e)}")
 
-        for version in versions:
-            self.available_list.addItem(
-                version['version'])
+    def on_version_selected(self, item):
+        """Quando uma versão é selecionada"""
+        if not self.version_manager:
+            return
+            
+        try:
+            text = item.text()
+            # Extrai o caminho do texto (última linha)
+            lines = text.split('\n')
+            python_path = lines[-1] if len(lines) > 1 else text
+            
+            # Atualiza informações
+            version = self.version_manager._get_python_version(python_path)
+            if version:
+                info_text = f"""
+                <b>Python {version}</b><br>
+                <b>Caminho:</b> {python_path}<br>
+                <b>Tipo:</b> {'Versão Atual' if '⭐' in text else 'Sistema'}
+                """
+                self.version_info.setText(info_text)
+                self.set_default_btn.setEnabled(True)
+                
+        except Exception as e:
+            self.version_info.setText(f"Erro ao obter informações: {str(e)}")
 
     def set_default_version(self):
         """Define a versão selecionada como padrão"""
-        current_item = self.installed_list.currentItem()
-        if not current_item:
-            QMessageBox.warning(
-                self, "Aviso", "Selecione uma versão Python!")
+        if not self.version_manager:
             return
-
-        # Extrai o caminho do item
-        item_text = current_item.text()
-        path = item_text.split(" - ")[1]
-
-        new_default = self.version_manager.set_as_default(path)
-        if new_default:
-            QMessageBox.information(
-                self, "Sucesso", f"Python padrão definido para:\n{new_default}")
-            if hasattr(
-                    self.parent(), 'update_python_version'):
-                self.parent().update_python_version(new_default)
-        else:
-            QMessageBox.warning(
-                self, "Erro", "Não foi possível definir esta versão como padrão.")
-
-    def open_download_page(self):
-        """Abre página de download da versão selecionada"""
-        current_item = self.available_list.currentItem()
-        if not current_item:
-            QMessageBox.warning(
-                self, "Aviso", "Selecione uma versão para download!")
-            return
-
-        version_name = current_item.text()
-        versions = self.version_manager.get_available_versions()
-
-        for version in versions:
-            if version['version'] == version_name:
-                import webbrowser
-                webbrowser.open(
-                    version['url'])
-                QMessageBox.information(self, "Download",
-                                        f"Abriu a página de download para {version_name}")
-                break
-
-
+            
+        try:
+            current_item = self.installed_versions_list.currentItem()
+            if not current_item:
+                QMessageBox.warning(self, "Aviso", "Selecione uma versão primeiro!")
+                return
+                
+            text = current_item.text()
+            lines = text.split('\n')
+            python_path = lines[-1] if len(lines) > 1 else text
+            
+            result = self.version_manager.set_as_default(python_path)
+            
+            if result['success']:
+                QMessageBox.information(self, "Sucesso", result['message'])
+                self.refresh_installed_versions()
+            else:
+                QMessageBox.warning(self, "Aviso", result['message'])
+                
+        except Exception as e:
+            QMessageBox.critical(self, "Erro", f"Erro ao definir versão padrão: {str(e)}")
 
 
 class FontSelectionDialog(QDialog):

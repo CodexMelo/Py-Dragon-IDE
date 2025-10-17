@@ -1,9 +1,16 @@
-from PySide6.QtWidgets import QDialog, QListWidget
-from PySide6.QtCore import QThread, Signal
+# CORRIGIR os imports - ADICIONAR QListWidgetItem
+from PySide6.QtWidgets import (
+    QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, 
+    QListWidget, QLineEdit, QProgressBar, QMessageBox, QWidget,
+    QGroupBox, QTextEdit, QListWidgetItem  # ADICIONAR QListWidgetItem
+)
+from PySide6.QtCore import Qt, QThread, Signal
+
+# ===== IMPORTS DO SISTEMA =====
+import os
+import sys
 import subprocess
-
-
-
+import json  # ADICIONADO
 class PackageManagerDialog(QDialog):
     """Diálogo completo para gerenciamento de pacotes Python"""
     
@@ -11,6 +18,7 @@ class PackageManagerDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("📦 Gerenciador de Pacotes Python")
         self.setGeometry(200, 200, 900, 700)
+        self.all_packages = []  # ✅ INICIALIZAR VARIÁVEL
         self.setup_ui()
         self.refresh_packages()
 
@@ -128,12 +136,16 @@ class PackageManagerDialog(QDialog):
             packages = json.loads(output)
             self.all_packages = packages
             self.filter_packages()
-        except json.JSONDecodeError:
-            self.output_text.append("❌ Erro ao analisar lista de pacotes")
+            self.progress_bar.setVisible(False)
+        except json.JSONDecodeError as e:
+            self.output_text.append(f"❌ Erro ao analisar lista de pacotes: {e}")
+            self.progress_bar.setVisible(False)
 
     def filter_packages(self):
         """Filtra pacotes baseado no texto do filtro"""
-        if not hasattr(self, 'all_packages'):
+        if not hasattr(self, 'all_packages') or not self.all_packages:
+            self.packages_list.clear()
+            self.packages_list.addItem("Nenhum pacote encontrado")
             return
 
         filter_text = self.filter_input.text().lower()
@@ -148,6 +160,10 @@ class PackageManagerDialog(QDialog):
                 item = QListWidgetItem(item_text)
                 item.setData(Qt.UserRole, package)
                 self.packages_list.addItem(item)
+
+        if self.packages_list.count() == 0:
+            self.packages_list.addItem("Nenhum pacote corresponde ao filtro")
+
 
     def search_package(self):
         """Busca pacote no PyPI"""
@@ -266,8 +282,6 @@ class PackageManagerDialog(QDialog):
         self.output_text.append("➡️ " + message)
 
 
-
-
 class PackageManagerThread(QThread):
     """Thread para gerenciar operações de pacotes em background"""
     
@@ -280,24 +294,31 @@ class PackageManagerThread(QThread):
         self.command = command
         self.package_name = package_name
         self.version = version
+        self._is_running = True
 
     def run(self):
         try:
+            if not self._is_running:
+                return
+
             if self.command == "list":
                 self.progress_signal.emit("Listando pacotes instalados...")
                 result = subprocess.run(
                     [sys.executable, "-m", "pip", "list", "--format=json"],
                     capture_output=True, text=True, encoding='utf-8', timeout=30
                 )
-                self.output_signal.emit(result.stdout)
+                if self._is_running:
+                    self.output_signal.emit(result.stdout)
 
             elif self.command == "search":
                 self.progress_signal.emit(f"Buscando pacote: {self.package_name}...")
+                # Nota: pip search foi descontinuado, usando alternativa
                 result = subprocess.run(
-                    [sys.executable, "-m", "pip", "search", self.package_name],
+                    [sys.executable, "-m", "pip", "index", "versions", self.package_name],
                     capture_output=True, text=True, encoding='utf-8', timeout=30
                 )
-                self.output_signal.emit(result.stdout)
+                if self._is_running:
+                    self.output_signal.emit(result.stdout)
 
             elif self.command == "install":
                 package_spec = self.package_name
@@ -307,12 +328,13 @@ class PackageManagerThread(QThread):
                 self.progress_signal.emit(f"Instalando {package_spec}...")
                 result = subprocess.run(
                     [sys.executable, "-m", "pip", "install", package_spec],
-                    capture_output=True, text=True, encoding='utf-8', timeout=120
+                    capture_output=True, text=True, encoding='utf-8', timeout=300  # Aumentado timeout
                 )
-                if result.returncode == 0:
-                    self.finished_signal.emit(True, f"Pacote {package_spec} instalado com sucesso!")
-                else:
-                    self.finished_signal.emit(False, f"Erro ao instalar: {result.stderr}")
+                if self._is_running:
+                    if result.returncode == 0:
+                        self.finished_signal.emit(True, f"Pacote {package_spec} instalado com sucesso!")
+                    else:
+                        self.finished_signal.emit(False, f"Erro ao instalar: {result.stderr}")
 
             elif self.command == "uninstall":
                 self.progress_signal.emit(f"Desinstalando {self.package_name}...")
@@ -320,21 +342,23 @@ class PackageManagerThread(QThread):
                     [sys.executable, "-m", "pip", "uninstall", "-y", self.package_name],
                     capture_output=True, text=True, encoding='utf-8', timeout=60
                 )
-                if result.returncode == 0:
-                    self.finished_signal.emit(True, f"Pacote {self.package_name} desinstalado com sucesso!")
-                else:
-                    self.finished_signal.emit(False, f"Erro ao desinstalar: {result.stderr}")
+                if self._is_running:
+                    if result.returncode == 0:
+                        self.finished_signal.emit(True, f"Pacote {self.package_name} desinstalado com sucesso!")
+                    else:
+                        self.finished_signal.emit(False, f"Erro ao desinstalar: {result.stderr}")
 
             elif self.command == "upgrade":
                 self.progress_signal.emit(f"Atualizando {self.package_name}...")
                 result = subprocess.run(
                     [sys.executable, "-m", "pip", "install", "--upgrade", self.package_name],
-                    capture_output=True, text=True, encoding='utf-8', timeout=120
+                    capture_output=True, text=True, encoding='utf-8', timeout=300
                 )
-                if result.returncode == 0:
-                    self.finished_signal.emit(True, f"Pacote {self.package_name} atualizado com sucesso!")
-                else:
-                    self.finished_signal.emit(False, f"Erro ao atualizar: {result.stderr}")
+                if self._is_running:
+                    if result.returncode == 0:
+                        self.finished_signal.emit(True, f"Pacote {self.package_name} atualizado com sucesso!")
+                    else:
+                        self.finished_signal.emit(False, f"Erro ao atualizar: {result.stderr}")
 
             elif self.command == "show":
                 self.progress_signal.emit(f"Obtendo informações do pacote {self.package_name}...")
@@ -342,13 +366,21 @@ class PackageManagerThread(QThread):
                     [sys.executable, "-m", "pip", "show", self.package_name],
                     capture_output=True, text=True, encoding='utf-8', timeout=30
                 )
-                if result.returncode == 0:
-                    self.output_signal.emit(result.stdout)
-                else:
-                    self.output_signal.emit(f"Erro ao obter informações: {result.stderr}")
+                if self._is_running:
+                    if result.returncode == 0:
+                        self.output_signal.emit(result.stdout)
+                    else:
+                        self.output_signal.emit(f"Erro ao obter informações: {result.stderr}")
 
         except subprocess.TimeoutExpired:
-            self.finished_signal.emit(False, "Timeout: A operação demorou muito.")
+            if self._is_running:
+                self.finished_signal.emit(False, "Timeout: A operação demorou muito.")
         except Exception as e:
-            self.finished_signal.emit(False, f"Erro: {str(e)}")
-            
+            if self._is_running:
+                self.finished_signal.emit(False, f"Erro: {str(e)}")
+
+    def stop(self):
+        """Para a thread de forma segura"""
+        self._is_running = False
+        self.quit()
+        self.wait(1000)
