@@ -1,5 +1,5 @@
 from PySide6.QtWidgets import QDialog, QLineEdit, QListWidget
-from PySide6.QtCore import QRegExp
+from PySide6.QtCore import QRegularExpression
 
 
 class AdvancedFindSimilarDialog(QDialog):

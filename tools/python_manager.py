@@ -1,9 +1,19 @@
-from PySide6.QtCore import QProcess
-import subprocess
+from PySide6.QtWidgets import (
+    QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QComboBox, 
+    QLineEdit, QTabWidget, QListWidget, QGroupBox, QCheckBox, 
+    QProgressBar, QProgressDialog, QInputDialog, QMessageBox,
+    QTextEdit, QPlainTextEdit
+)
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QTextCursor, QColor, QFont, QFontDatabase
+
+# ===== IMPORTS DO SISTEMA =====
+import os
 import sys
-
-
-
+import re
+import subprocess
+import zipfile
+import shutil
 
 class PythonVersionManager:
     """Gerenciador de versões Python instaladas e para download"""

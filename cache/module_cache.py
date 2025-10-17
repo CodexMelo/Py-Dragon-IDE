@@ -1,8 +1,11 @@
-import ast
+from typing import Set, Dict, List, Any, Optional
+import time
+import threading
 import os
-from typing import Dict, List
-
-
+import sys
+import importlib
+import inspect
+import ast
 
 class ModuleCacheManager:
     """Gerenciador de cache para módulos e métodos"""

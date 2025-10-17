@@ -1,15 +1,15 @@
-from PySide6.QtCore import QObject
+from PySide6.QtCore import *
+from PySide6.QtGui import *
+from PySide6.QtWidgets import *  # ✅ CORREÇÃO: Adicionar este import
 from typing import Dict, Any
-
-
-
+import os
 class SyntaxHighlightingManager:
-    """Gerenciador de syntax highlighting para o IDE"""
     
     def __init__(self, ide_instance):
         self.ide = ide_instance
         self.highlighters = {}
         self.current_language = "python"
+        self.language_syntax_manager = LanguageSyntaxManager()  # ✅ CORREÇÃO: Criar instância
         
     def setup_editor_highlighter(self, editor, file_path):
         """Configura syntax highlighting para um editor baseado no arquivo"""
@@ -23,13 +23,36 @@ class SyntaxHighlightingManager:
         if editor in self.highlighters:
             self.highlighters[editor].setDocument(None)
             
-        # Cria novo highlighter
-        highlighter = AdvancedSyntaxHighlighter(editor.document(), language)
-        self.highlighters[editor] = highlighter
-        
+        # ✅ CORREÇÃO: Usar HighlighterFactory para criar o highlighter correto
+        try:
+            from syntax.highlighters import HighlighterFactory
+            highlighter = HighlighterFactory.create_highlighter(file_path, editor.document())
+            self.highlighters[editor] = highlighter
+            print(f"✅ Highlighter criado para: {language}")
+            
+        except ImportError:
+            # Fallback: criar highlighter básico
+            print("⚠️ HighlighterFactory não encontrado, usando fallback")
+            highlighter = self._create_basic_highlighter(language, editor.document())
+            self.highlighters[editor] = highlighter
+            
         # Aplica configurações adicionais
         self.apply_editor_settings(editor)
+    
+    def _create_basic_highlighter(self, language, document):
+        """Cria um highlighter básico como fallback"""
+        from PySide6.QtGui import QSyntaxHighlighter
         
+        class BasicHighlighter(QSyntaxHighlighter):
+            def __init__(self, parent=None):
+                super().__init__(parent)
+                
+            def highlightBlock(self, text):
+                # Implementação básica - sem highlighting
+                pass
+        
+        return BasicHighlighter(document)
+    
     def detect_language(self, file_path):
         """Detecta a linguagem baseada na extensão do arquivo"""
         extension = os.path.splitext(file_path)[1].lower()
@@ -88,8 +111,10 @@ class SyntaxHighlightingManager:
             if hasattr(highlighter, 'colors'):
                 highlighter.colors.update(theme_colors)
                 # Recarrega as regras com as novas cores
-                highlighter.highlighting_rules.clear()
-                highlighter.setup_rules()
+                if hasattr(highlighter, 'highlighting_rules'):
+                    highlighter.highlighting_rules.clear()
+                if hasattr(highlighter, 'setup_rules'):
+                    highlighter.setup_rules()
                 # Força rehighlight de todo o documento
                 highlighter.rehighlight()
     
@@ -100,16 +125,12 @@ class SyntaxHighlightingManager:
             del self.highlighters[editor]
 
 
-
-
-
 class LanguageSyntaxManager:
-    """Gerenciador de sintaxe para múltiplas linguagens"""
 
     def __init__(self):
         self.syntax_data = {}
         self.syntax_path = os.path.join(
-            os.path.expanduser("~"), ".py_dragon_syntax")
+        os.path.expanduser("~"), ".py_dragon_syntax")
         self.load_all_syntax()
 
     def load_all_syntax(self):

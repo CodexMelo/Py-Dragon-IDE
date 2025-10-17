@@ -1,6 +1,10 @@
-from PySide6.QtWidgets import QDialog
+# ===== IMPORTS DO PYSIDE6 =====
+from PySide6.QtWidgets import (
+    QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, 
+    QListWidget, QComboBox, QColorDialog, QMessageBox
+)
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPalette, QColor
+from PySide6.QtGui import QColor, QPalette
 from typing import Dict, Any
 
 

@@ -1,173 +1,305 @@
-
-
 import os
 import sys
 import re
 import traceback
+import platform
+import subprocess
+import shutil
+import zipfile
+import threading
+import importlib
+import webbrowser
+import json
+import xml.etree.ElementTree as ET
+import tempfile
+import glob
+import fnmatch
+import inspect
+import ast
+import tokenize
+import io
 from pathlib import Path
+from datetime import datetime
 
-from PySide6.QtWidgets import (QMainWindow, QApplication, QWidget, QVBoxLayout, 
-                            QHBoxLayout, QTabWidget, QTextEdit, QTreeWidget,
-                            QListWidget, QSplitter, QStatusBar, QToolBar,
-                            QMenuBar, QMenu, QFileDialog, QMessageBox,
-                            QDockWidget, QPlainTextEdit, QLabel, QInputDialog,
-                            QPushButton, QFileSystemModel, QTreeView,
-                            QStyledItemDelegate, QSplitter, QDialog)
-from PySide6.QtCore import Qt, QTimer, QSettings, QSize, QProcess, QDir
-from PySide6.QtGui import (QKeySequence, QIcon, QFont, QPalette, QColor, QAction, 
-                        QTextCursor, QTextDocument, QShortcut, QTextFormat)
-try:
-    from tools.python_manager import PythonVersionManager
-    from analysis.lsp_client import LSPManager
-    from core.plugin_system import PluginManager
-    from core.theme_manager import ThemeManager
-    from syntax.syntax_manager import SyntaxHighlightingManager
-    from editor.editor_core import EditorTab, UnifiedCodeEditor
-    from ui.widgets import OutlineWidget, Minimap ,ScopeHeaderWidget,ScopeIndicatorWidget,LoadingWidget,StatusBarProgress,ProblemsDelegate
-    from ui.dialogs import (PythonVersionDialog, AdvancedFindSimilarDialog, 
-                        PackageManagerDialog, ThemeDialog, NewFileDialog,
-                        PackageDialog, DeployDialog, ProgressDialog)
-    from debug.terminal import TerminalTextEdit, DebugTerminal
-    from search.find_similar import FindSimilarDialog
-    from tools.indentation_checker import IndentationChecker
-    from syntax.language_config import LanguageConfig
-    from analysis.code_analyzer import CodeAnalyzer
-    from cache.module_cache import ModuleCacheManager
-    from search.code_indicators import CodeIndicators
-    from editor.autocomplete import HybridCompleter
-except ImportError as e:
-    print(f"⚠️ Import warning: {e}")
-    # Define classes básicas se os imports falharem
-    class PythonVersionManager:
-        def __init__(self): print("PythonVersionManager placeholder")
-    class LSPManager:
-        def __init__(self): print("LSPManager placeholder") 
-    class PluginManager:
-        def __init__(self): print("PluginManager placeholder")
-    class ThemeManager:
-        def __init__(self): print("ThemeManager placeholder")
-    class SyntaxHighlightingManager:
-        def __init__(self): print("SyntaxHighlightingManager placeholder")
-    class EditorTab(QWidget):
-        def __init__(self): 
-            super().__init__()
-            self.editor = QPlainTextEdit()
-            layout = QVBoxLayout(self)
-            layout.addWidget(self.editor)
-        def set_content(self, content): self.editor.setPlainText(content)
-        def get_content(self): return self.editor.toPlainText()
-    class UnifiedCodeEditor(QPlainTextEdit):
-        def __init__(self, text="", cursor_position=0, file_path=None, project_path=None, parent=None):
-            super().__init__(parent)
-            self.setPlainText(text)
-    class OutlineWidget(QWidget):
-        def __init__(self, parent=None): super().__init__(parent)
-    # CORREÇÃO: Adicionar Minimap placeholder
-    class Minimap(QWidget):
-        def __init__(self, parent=None):
-            super().__init__(parent)
-            self.setMinimumWidth(80)
-            self.setMaximumWidth(150)
-            layout = QVBoxLayout(self)
-            self.label = QLabel("Minimap\n(Placeholder)")
-            self.label.setAlignment(Qt.AlignCenter)
-            layout.addWidget(self.label)
-        def set_main_editor(self, editor): pass
-        def clear(self): pass
-    # Diálogos placeholder
-    class PythonVersionDialog(QDialog): pass
-    # ... resto dos placeholders
-    class AdvancedFindSimilarDialog(QDialog): pass
-    class PackageManagerDialog(QDialog): pass
-    class ThemeDialog(QDialog): pass
-    class NewFileDialog(QDialog): pass
-    class PackageDialog(QDialog): pass
-    class DeployDialog(QDialog): pass
-    class ProgressDialog(QDialog): pass
-    class TerminalTextEdit(QPlainTextEdit): pass
-    class DebugTerminal(QPlainTextEdit): pass
-    class FindSimilarDialog(QDialog): pass
-    class IndentationChecker: pass
-    class LanguageConfig: pass
-    class CodeAnalyzer: pass
-    class ModuleCacheManager: pass
-    class CodeIndicators: pass
-    class HybridCompleter: pass
+# ===== IMPORTS DO PYSIDE6 =====
+from PySide6.QtWidgets import (
+    QMainWindow, QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
+    QTabWidget, QTextEdit, QTreeWidget, QListWidget, QSplitter, 
+    QStatusBar, QToolBar, QMenuBar, QMenu, QFileDialog, QMessageBox, 
+    QDockWidget, QPlainTextEdit, QLabel, QInputDialog, QPushButton, 
+    QFileSystemModel, QTreeView, QStyledItemDelegate, QDialog,
+    QListWidgetItem, QToolButton, QFontDialog, QProgressDialog
+)
+from PySide6.QtCore import (
+    Qt, QTimer, QSettings, QSize, QProcess, QDir, QModelIndex,
+    QThread, QObject, Signal, QEvent, QRegularExpression, QRect,
+    QItemSelectionModel, QStringListModel
+)
+from PySide6.QtGui import (
+    QKeySequence, QIcon, QFont, QPalette, QColor, QAction, 
+    QTextCursor, QTextDocument, QShortcut, QTextFormat, QTextCharFormat,
+    QSyntaxHighlighter, QGuiApplication, QClipboard, QPainter,
+    QTextBlock, QKeyEvent, QMouseEvent, QFocusEvent, QResizeEvent,
+    QDesktopServices, QLinearGradient, QBrush
+)
+
+# ===== IMPORTS DO PROJETO =====
+
+# Core Systems
+from core.plugin_system import PluginManager, PluginInfo 
+from core.theme_manager import ThemeManager, ThemeDialog
+
+# Tools e Managers
+from tools.python_manager import PythonVersionManager
+from tools.indentation_checker import IndentationChecker
+from tools.package_manager import PackageManagerDialog
+
+# Analysis
+from analysis.lsp_client import LSPManager
+from analysis.code_analyzer import CodeAnalyzer
+
+# Syntax
+from syntax.language_config import LanguageConfig  
+from syntax.syntax_manager import SyntaxHighlightingManager,LanguageSyntaxManager
 
 
-class ProblemsDelegate(QStyledItemDelegate):
-    """Delegate personalizado para a lista de problemas"""
-    def paint(self, painter, option, index):
-        super().paint(painter, option, index)
+# Editor
+from editor.editor_core import UnifiedCodeEditor, EditorTab
+from editor.autocomplete import UnifiedSuggestionSystem
+
+
+# UI Components
+from ui.widgets import (
+    StatusBarProgress,
+    OutlineWidget, ProblemsDelegate, Minimap
+)
+from debug.terminal import TerminalTextEdit,DebugTerminal
+
+# UI Dialogs
+from ui.dialogs import (
+    NewFileDialog, PackageDialog, DeployDialog, ProgressDialog,
+    PythonVersionDialog, AdvancedFindSimilarDialog,
+    FindSimilarDialog
+)
+
+# Cache
+from cache.module_cache import ModuleCacheManager
+
+# Search
+from search.find_similar import AdvancedFindSimilarDialog
+
+# Debug
+from debug.terminal import DebugTerminal
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
 class IDE(QMainWindow):
-    """Classe principal da IDE"""
-    
     def __init__(self):
         super().__init__()
         
-        # INICIALIZAR ATRIBUTOS PRIMEIRO
+        self._initialize_debug_log()
+    
+    # DEPOIS: Inicializar atributos
         self._initialize_variables()
     
-    # DEPOIS configurar a UI - COM MELHOR TRATAMENTO DE ERRO
+    # DEPOIS: configurar a UI
+        self.setup_managers()  # ✅ AGORA debug_log ESTÁ DEFINIDO
+        self.setup_ui()
+        self.setup_connections()
+        self.setup_shortcuts()
+    
+    # Configurar sistemas avançados
+        self.setup_syntax_highlighting_system()
+        self.setup_autocomplete()
+        
+    # Configurar exceções globais
+        sys.excepthook = self.exception_hook
+    
+    # CORREÇÃO: Inicialização sequencial com delays
+        QTimer.singleShot(100, self.initialize_delayed_systems)
+
+    def _initialize_variables(self):
+        """INICIALIZAÇÃO SEGURA: Define TODAS as variáveis com valores padrão"""
+        # Variáveis básicas
+        self.current_file = ""
+        self.project_path = ""
+        self.python_path = sys.executable
+        self.venv_path = ""
+        self.current_font = "Consolas"
+        self.clipboard_path = ""
+        self.is_cut = False
+        self.file_path = ""
+        
+        # CORREÇÃO: Inicializar editor como None
+        self.editor = None
+        
+        # Inicializar processos como None
+        self.shell_process = None
+        self.debug_process = None
+        self.current_process = None
+    
+        # Workers
+        self.linter_worker = None
+        self.auto_complete_worker = None
+        self.debug_worker = None
+    
+        # Estado
+        self.is_linting = False
+        self.pending_lint = False
+        self.last_lint_content = ""
+
+        # UI components - inicializar como None
+        self.problems_list = None
+        self.file_model = None
+        self.file_tree = None
+        self.tab_widget = None
+        self.output_tabs = None
+        self.terminal_text = None
+        self.output_text = None
+        self.debug_text = None
+        self.errors_text = None
+        self.lint_text = None
+        self.minimap = None
+    
+        self.file_info_label = None
+        self.cursor_info_label = None
+        self.project_info_label = None
+        self.status_progress = None
+    
+        # CORREÇÃO: Inicializar atributos de escopo
+        self.current_class = "Global"
+        self.current_function = "Nenhuma"
+        
+        # CORREÇÃO: Adicionar atributos faltantes para terminal
+        self.terminal_process_started = False
+        self.terminal_dock = None
+        
+        # CORREÇÃO: Adicionar atributos para autocomplete
+        self.autocomplete_widget = None
+        self.autocomplete_timer = None
+        
+        # CORREÇÃO: Adicionar atributos para plugins
+        self.plugin_manager = None
+        
+        # CORREÇÃO: Adicionar atributos para LSP
+        self.lsp_manager = None
+        
+        # CORREÇÃO: Adicionar atributos para indicadores visuais
+        self.current_line_highlight = True
+        self.show_line_numbers = True
+        self.show_minimap = True
+        self.indicator_colors = {}
+        
+        # CORREÇÃO: Adicionar atributos para splitter
+        self.main_splitter = None
+        
+        # CORREÇÃO: Adicionar atributos para outline
+        self.outline_widget = None
+        self.scope_info_label = None
+        
+        # CORREÇÃO: Adicionar atributos para debug
+        self.debug_mode = False
+        self.current_debug_file = None
+        
+        # CORREÇÃO: Adicionar atributos para syntax highlighting
+        self.syntax_highlighting_manager = None
+        self.language_config = None
+        self.language_syntax_manager = None
+        
+        # CORREÇÃO: Adicionar atributos para gerenciadores
+        self.python_version_manager = None
+        self.theme_manager = None
+        self.indentation_checker = None
+    def _initialize_debug_log(self):
+        """Inicializa o sistema de logging PRIMEIRO"""
+        # Definir o método debug_log antes de qualquer uso
+        def debug_log(message, level="INFO"):
+            levels = {
+                "INFO": "ℹ️",
+                "SUCCESS": "✅", 
+                "WARNING": "⚠️",
+                "ERROR": "❌",
+                "DEBUG": "🐛"
+            }
+            icon = levels.get(level, "🔵")
+            timestamp = datetime.now().strftime("%H:%M:%S")
+            print(f"{icon} [{timestamp}] {message}")
+    
+        # Atribuir ao self
+        self.debug_log = debug_log
+        print("✅ Sistema de logging inicializado")
+
+
+    def setup_managers(self):
+        """Inicializa todos os gerenciadores do sistema - VERSÃO SEGURA"""
         try:
-            self.setup_managers()
-            self.setup_ui()
-            self.setup_connections()
-            self.setup_shortcuts()
-            
-            # Configurar sistemas avançados
-            self.setup_lsp_system()
-            self.setup_syntax_highlighting_system()
-            self.setup_autocomplete()
-            
-            # Configurar exceções globais
-            sys.excepthook = self.exception_hook
-            
-            # Inicializar sistemas com delay para garantir estabilidade
-            QTimer.singleShot(100, self.setup_autocomplete)
-            QTimer.singleShot(200, self.setup_plugin_system)
-            QTimer.singleShot(500, self.setup_autocomplete_system)
-            QTimer.singleShot(100, self.setup_undo_redo_system)
-            
-            # Configurações de debug
-            self.debug_mode = False
-            self.debug_process = None
-            self.current_debug_file = None
+            print("🔧 Inicializando gerenciadores...")
         
-            # Parse de argumentos de linha de comando
-            self.parse_command_line_args()
-        
-            # CORREÇÃO: setup_indicators deve vir ANTES do setup_scope_header
-            self.setup_indicators()
-
-            # Configurar scope header com delay para garantir que a UI está pronta
-            QTimer.singleShot(100, self.setup_scope_header)
-        
-            print("✅ IDE inicializada com sucesso")
-        
+            # Gerenciador de versões Python
+            self.python_version_manager = PythonVersionManager()
+            print("✅ Gerenciador de versões Python inicializado")
+            
+            # Gerenciador de temas
+            self.theme_manager = ThemeManager()
+            print("✅ Gerenciador de temas inicializado")
+            
+            # Verificador de indentação
+            self.indentation_checker = IndentationChecker()
+            print("✅ Verificador de indentação inicializado")
+            
+            # Configuração de linguagem
+            self.language_config = LanguageConfig()
+            print("✅ Configuração de linguagem inicializada")
+            
+            # Gerenciador de sintaxe
+            self.language_syntax_manager = LanguageSyntaxManager()
+            print("✅ Gerenciador de sintaxe inicializado")
+    
+            # Gerenciador de cache global
+            global module_cache_manager
+            module_cache_manager = ModuleCacheManager()
+            print("✅ Gerenciador de cache inicializado")
+            
+            # Gerenciador de syntax highlighting (será configurado depois)
+            self.syntax_highlighting_manager = None
+            
+            # Gerenciador LSP (será configurado depois)
+            self.lsp_manager = None
+            
+            print("✅ Todos os gerenciadores inicializados com sucesso")
+            
         except Exception as e:
-            print(f"❌ Erro crítico na inicialização: {e}")
-            # Tentar pelo menos mostrar a janela básica
-            self.setWindowTitle("Py Dragon Studio IDE - Modo de Recuperação")
-            self.statusBar().showMessage(f"Erro na inicialização: {e}")
+            print(f"❌ Erro ao inicializar gerenciadores: {e}")
+            # Continua mesmo com erro para não quebrar a aplicação
+    
+    def debug_log(self, message, level="INFO"):
+        """Sistema de logging consistente - DEFINIR AGORA"""
+        levels = {
+            "INFO": "ℹ️",
+            "SUCCESS": "✅", 
+            "WARNING": "⚠️",
+            "ERROR": "❌",
+            "DEBUG": "🐛"
+        }
+        icon = levels.get(level, "🔵")
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        print(f"{icon} [{timestamp}] {message}")
+    
 
-
-
-    def setup_undo_redo_system(self):
-        """Configura o sistema de undo/redo de forma completa"""
-        try:
-            # Conectar sinais para atualizar estado dos botões
-            self.update_undo_redo_actions()
-            
-            # Conectar mudança de aba para atualizar undo/redo
-            self.tab_widget.currentChanged.connect(self.update_undo_redo_actions)
-            
-            print("✅ Sistema undo/redo configurado")
-        except Exception as e:
-            print(f"❌ Erro ao configurar undo/redo: {e}")
     def setup_scope_header(self):
         """Configura o header de escopo (classe/função atual) - NOVO MÉTODO"""
         # Este método será implementado para mostrar o escopo atual
@@ -433,32 +565,12 @@ class IDE(QMainWindow):
                     self.debug_text.appendPlainText(f"[ERRO] {data}")
         except Exception as e:
             print(f"Erro ao processar erro do debug: {e}")        
-    def setup_autocomplete(self):
-        """Configura o sistema de autocomplete de forma unificada"""
-        try:
-            # Inicializa o completador híbrido
-            self.completer = HybridCompleter()
-
-            # Shortcut global para autocomplete
-            self.autocomplete_shortcut = QShortcut(QKeySequence("Ctrl+Space"), self)
-            self.autocomplete_shortcut.activated.connect(self.trigger_global_autocomplete)
-
-            print("✅ Sistema de autocomplete inicializado")
-
-        except Exception as e:
-            print(f"❌ Erro no setup do autocomplete: {e}")
     
-    def setup_syntax_highlighting_system(self):
-        """Configura o sistema de syntax highlighting"""
-        try:
-            self.syntax_highlighting_manager = SyntaxHighlightingManager(self)
-            print("✅ Sistema de syntax highlighting configurado")
-        except Exception as e:
-            print(f"❌ Erro ao configurar syntax highlighting: {e}")
-
-
+            
+    
     def parse_command_line_args(self):
-        """Processa --project e --python se launcher iniciar sem socket"""
+        """NOVO: Processa --project e --python se launcher iniciar sem socket"""
+        import sys
         args = sys.argv[1:] if len(sys.argv) > 1 else []
         project = None
         python_ver = None
@@ -468,95 +580,8 @@ class IDE(QMainWindow):
             elif arg == "--python" and i + 1 < len(args):
                 python_ver = args[i + 1]
         if project:
-            QTimer.singleShot(1000, lambda: self.set_project(project))  # Delay para UI carr
-
-    def _initialize_variables(self):
-        """INICIALIZAÇÃO SEGURA: Define TODAS as variáveis com valores padrão - VERSÃO ÚNICA"""
-    # Variáveis básicas
-        self.current_file = ""
-        self.project_path = ""
-        self.python_path = sys.executable
-        self.venv_path = ""
-        self.current_font = "Consolas"
-        self.clipboard_path = ""
-        self.is_cut = False
-        self.file_path = ""  # Inicializar file_path vazio
-        
-        # CORREÇÃO: Inicializar editor como None
-        self.editor = None
-        
-        # Inicializar processos como None
-        self.shell_process = None
-        self.debug_process = None
-        self.current_process = None
+            QTimer.singleShot(1000, lambda: self.set_project(project))  # Delay para UI carregar
     
-        # Workers
-        self.linter_worker = None
-        self.auto_complete_worker = None
-        self.debug_worker = None
-    
-        # Estado
-        self.is_linting = False
-        self.pending_lint = False
-        self.last_lint_content = ""
-    
-        # UI components - inicializar como None
-        self.problems_list = None
-        self.file_model = None
-        self.file_tree = None
-        self.tab_widget = None
-        self.output_tabs = None
-        self.terminal_text = None
-        self.output_text = None
-        self.debug_text = None
-        self.errors_text = None
-        self.lint_text = None
-        self.minimap = None
-    
-        self.file_info_label = None
-        self.cursor_info_label = None
-        self.project_info_label = None
-        self.status_progress = None
-    
-        # CORREÇÃO: Inicializar atributos de escopo
-        self.current_class = "Global"
-        self.current_function = "Nenhuma"
-    
-        # CORREÇÃO: Inicializar atributos do terminal
-        self.terminal_process_started = False
-    def exception_hook(self, exctype, value, tb):
-        """Captura exceções globais"""
-        print("ERRO GLOBAL:", exctype, value)
-        traceback.print_exception(exctype, value, tb)
-        sys.__excepthook__(exctype, value, tb)
-
-    def setup_plugin_system(self):
-        """Inicializa o sistema de plugins de forma segura"""
-        try:
-            self.plugin_manager = PluginManager(self)
-            self.plugin_manager.load_plugins()
-            self.integrate_plugins()
-            print("🔌 Sistema de plugins inicializado com sucesso")
-        except Exception as e:
-            print(f"❌ Erro ao inicializar plugins: {e}")
-
-    def setup_managers(self):
-        """Inicializa os novos gerenciadores"""
-        try:
-            self.python_version_manager = PythonVersionManager()
-            self.theme_manager = ThemeManager()
-            self.indentation_checker = IndentationChecker()
-            self.language_config = LanguageConfig()
-            
-            # Gerenciador de cache global
-            global module_cache_manager
-            module_cache_manager = ModuleCacheManager()
-            self.syntax_highlighting_manager = SyntaxHighlightingManager(self)
-            
-            print("✅ Managers inicializados")
-        except Exception as e:
-            print(f"❌ Erro ao inicializar managers: {e}")
-
 
     def setup_ui(self):
         self.setWindowTitle("Py Dragon Studio IDE")
@@ -1553,37 +1578,41 @@ class IDE(QMainWindow):
         if dialog.exec():
             file_name = dialog.get_file_name()
             if file_name:
-                # Cria editor CORRETO
-                self.setup_editor_connections(editor)
-
-                editor = UnifiedCodeEditor(
-                    text="",
-                    cursor_position=0,
-                    file_path=None,
-                    project_path=self.project_path,
-                    parent=self
-                )
+                try:
+                    # Cria editor CORRETO - MOVER A CRIAÇÃO DO EDITOR PARA DENTRO DO TRY
+                    editor = UnifiedCodeEditor(
+                        text="",
+                        cursor_position=0,
+                        file_path=None,
+                        project_path=self.project_path,
+                        parent=self
+                    )
+                    
+                    # Configurar para aceitar atalhos
+                    editor.setFocusPolicy(Qt.StrongFocus)
+    
+                    # Cria widget de aba
+                    editor_tab = QWidget()
+                    layout = QVBoxLayout(editor_tab)
+                    layout.setContentsMargins(0, 0, 0, 0)
+                    layout.addWidget(editor)
+                    editor_tab.file_path = None
+                    editor_tab.editor = editor
+                    editor_tab.is_new_file = True
+                    editor_tab.file_name = file_name
+    
+                    # Configurar conexões do editor
+                    self.setup_editor_connections(editor)
+    
+                    # Adiciona à aba
+                    index = self.tab_widget.addTab(editor_tab, f"📄 {file_name}")
+                    self.tab_widget.setCurrentIndex(index)
+    
+                    editor.setFocus()
+                    self.update_file_info(None)
                 
-                # Configurar para aceitar atalhos
-                editor.setFocusPolicy(Qt.StrongFocus)
-
-                # Cria widget de aba
-                editor_tab = QWidget()
-                layout = QVBoxLayout(editor_tab)
-                layout.setContentsMargins(0, 0, 0, 0)
-                layout.addWidget(editor)
-                editor_tab.file_path = None
-                editor_tab.editor = editor
-                editor_tab.is_new_file = True
-                editor_tab.file_name = file_name
-
-                # Adiciona à aba
-                index = self.tab_widget.addTab(editor_tab, f"📄 {file_name}")
-                self.tab_widget.setCurrentIndex(index)
-
-                editor.setFocus()
-                self.update_file_info(None)
-
+                except Exception as e:
+                    QMessageBox.warning(self, "Erro", f"Erro ao criar novo arquivo: {str(e)}")
     def open_file(self, file_path=None):
         """Abre um arquivo usando o EditorTab aprimorado"""
         if not file_path:
@@ -3785,40 +3814,60 @@ Thumbs.db
     # Métodos da classe IDE para autocomplete
     # NO IDE class - SUBSTITUIR O setup_autocomplete completo:
 
-    def setup_autocomplete(self):
-        """Configura o sistema de autocomplete de forma unificada - CORRIGIDO"""
+    # ✅ ADICIONE ESTES MÉTODOS NA CLASSE IDE:
+
+    
+
+    def trigger_unified_autocomplete(self):
+        """Dispara autocomplete usando o sistema unificado"""
         try:
-            # Inicializa o completador híbrido
-            self.completer = HybridCompleter()
-
-            # Shortcut global para autocomplete
-            self.autocomplete_shortcut = QShortcut(QKeySequence("Ctrl+Space"), self)
-            self.autocomplete_shortcut.activated.connect(self.trigger_global_autocomplete)
-
-            print("✅ Sistema de autocomplete inicializado")
-
+            editor = self.get_current_editor()
+            if not editor or not hasattr(self, 'autocomplete_widget'):
+                return
+                
+            # Implementação básica de autocomplete
+            cursor = editor.textCursor()
+            current_text = editor.toPlainText()
+            cursor_position = cursor.position()
+            
+            # Obter sugestões do sistema unificado
+            suggestions = self.autocomplete_widget.get_suggestions(
+                current_text, cursor_position, 
+                getattr(editor, 'file_path', ''), 
+                self.project_path or ""
+            )
+            
+            if suggestions:
+                cursor_rect = editor.cursorRect()
+                self.autocomplete_widget.show_completions(editor, suggestions, cursor_rect.bottomLeft())
+                
         except Exception as e:
-            print(f"❌ Erro no setup do autocomplete: {e}")
+            self.debug_log(f"❌ Erro no autocomplete unificado: {e}", "ERROR")
+    
+    def trigger_manual_autocomplete(self):
+        """Dispara autocomplete manualmente"""
+        self.trigger_unified_autocomplete()
 
+    def schedule_autocomplete(self):
+        """Agenda autocomplete quando o texto muda"""
+        self.autocomplete_timer.start(300)  # 300ms delay
+    
+    def connect_editor_autocomplete(self, index):
+        """Conecta autocomplete ao editor atual"""
+        if index >= 0:
+            widget = self.tab_widget.widget(index)
+            if hasattr(widget, 'editor'):
+                editor = widget.editor
+                # Conectar modificações de texto
+                editor.textChanged.connect(self.schedule_autocomplete)
+    
 
     def trigger_auto_complete(self):
         """Força a exibição do autocomplete manualmente"""
         if hasattr(self, 'autocomplete_timer'):
             self.autocomplete_timer.start(100)  # Timer muito curto para resposta imediata
-    def trigger_global_autocomplete(self):
-        """Dispara autocomplete globalmente"""
-        editor = self.get_current_editor()
-        if editor and hasattr(editor, 'trigger_autocomplete'):
-            editor.trigger_autocomplete()
-
+    
             
-
-    def handle_suggestions(self, file_path, suggestions):
-        """Processa sugestões recebidas do worker"""
-        editor = self.get_current_editor()
-        if editor and hasattr(editor, 'show_suggestions'):
-            editor.show_suggestions(editor, suggestions)
-
 
         
     def trigger_manual_autocomplete(self):
@@ -3836,359 +3885,23 @@ Thumbs.db
             self.completion_list.setVisible(False)
 
 
-    def show_completions(self, file_path, suggestions):
-        """Mostra lista de sugestões"""
-        editor = self.get_current_editor()  # CORRIGIDO
-        if not suggestions or not editor:
-            self.completion_list.setVisible(False)
-            return
-        
-        # Filtra sugestões duplicadas
-        unique_suggestions = []
-        seen = set()
-        for sug in suggestions:
-            if sug not in seen:
-                unique_suggestions.append(sug)
-                seen.add(sug)
-        
-        self.last_suggestions = unique_suggestions[:1000000]  # Limita a 10 sugestões
-        self.completion_list.clear()
-        
-        for sug in self.last_suggestions:
-            self.completion_list.addItem(sug)
-        
-        # Posiciona o dock perto do cursor
-        if self.completion_list.count() > 0:
-            self.completion_list.setVisible(True)
-            self.completion_dock.raise_()
-            self.completion_list.setFocus()
-
-
-    def trigger_autocomplete(self):
-        """Dispara autocomplete manual"""
-        editor = self.get_current_editor()  # CORRIGIDO
-        if editor:
-            # Atualiza texto e posição atual
-            self.text = editor.toPlainText()
-            cursor = editor.textCursor()
-            self.cursor_position = cursor.position()
-            
-            # Obtém sugestões
-            suggestions = self.get_enhanced_suggestions()
-            
-            if suggestions:
-                self.completion_list.clear()
-                for sug in suggestions:
-                    self.completion_list.addItem(sug)
-                self.completion_list.setVisible(True)
-                self.completion_dock.raise_()
-
-
-    def get_enhanced_suggestions(self):
-        """Obtém sugestões melhoradas de forma unificada - CORREÇÃO"""
-        suggestions = set()
-        
-        try:
-            # 1. Palavras-chave da linguagem atual
-            language_keywords = self.get_language_keywords()
-            suggestions.update(language_keywords)
-            
-            # 2. Definições locais do arquivo
-            local_definitions = self.extract_local_definitions()
-            suggestions.update(local_definitions)
-            
-            # 3. Módulos do projeto (se disponível)
-            if hasattr(self, 'project_path') and self.project_path:
-                project_modules = self.get_project_modules()
-                suggestions.update(project_modules)
-                
-            # 4. Sugestões do sistema de autocomplete base
-            base_suggestions = self.get_suggestions_for_autocomplete()
-            if base_suggestions:
-                suggestions.update(base_suggestions)
-            
-            # 5. Remove duplicatas e limita resultados
-            unique_suggestions = sorted(list(suggestions))
-            return unique_suggestions[:25]  # Limita a 25 sugestões
-            
-        except Exception as e:
-            print(f"❌ Erro no enhanced suggestions: {e}")
-            return self._get_fallback_suggestions()
-
-
-    def get_fallback_suggestions(self):
-        """Fallback caso o novo sistema falhe"""
-        suggestions = set()
-
-        # Sugestões básicas
-        keywords = [
-            "if", "else", "for", "while", "def", "class", "import"]
-        suggestions.update(keywords)
-
-        # Tenta análise simples com regex
-        functions = re.findall(
-            r'def\s+([a-zA-Z_][a-zA-Z0-9_]*)', self.text)
-        suggestions.update([f"{f}()" for f in functions])
-
-        return sorted(list(suggestions))[:1000000000]
-
-
-    def analyze_context(self, text_before_cursor, current_line):
-        """Analisa o contexto atual - NOVO MÉTODO"""
-        context = {'type': 'general'}
-
-        # Verifica se está em import
-        if 'import' in current_line:
-            if 'from' in current_line:
-                # from module import ...
-                parts = current_line.split('import')
-                if len(parts) > 1:
-                    module_part = parts[0].replace('from', '').strip()
-                    context = {'type': 'from_import', 'module': module_part}
-            else:
-                # import module
-                context = {'type': 'import'}
-
-        # Verifica se está acessando atributo (obj.)
-        elif current_line.strip().endswith('.'):
-            parts = current_line.split('.')
-            if len(parts) >= 2:
-                # Última palavra antes do ponto
-                obj_name = parts[-2].split()[-1]
-                context = {'type': 'attribute', 'object': obj_name}
-
-        # Verifica se está em chamada de função
-        elif '(' in current_line and not current_line.strip().endswith('('):
-            context = {'type': 'function_call'}
-
-        return context
     
 
-    def get_import_suggestions(self):
-        """Sugestões para imports - APRIMORADO"""
-        common_modules = [
-            'os', 'sys', 'json', 're', 'datetime', 'math', 'random',
-            'subprocess', 'shutil', 'glob', 'ast', 'inspect', 'importlib',
-            'platform', 'time', 'pathlib', 'collections', 'itertools', 'functools',
-            'typing', 'logging', 'unittest', 'pytest', 'numpy', 'pandas',
-            'matplotlib', 'seaborn', 'tkinter', 'PySide6', 'threading', 'multiprocessing'
-        ]
-        return common_modules
-
-
-    def get_from_import_suggestions(self, module_name):
-        """Sugestões para from module import - APRIMORADO COM HARDCODED"""
-        suggestions = set()
-
-        # HARDCODED para stdlib comuns (funciona sem import falhar)
-        hardcoded_stdlib = {
-            'tkinter': ['Tk', 'Button', 'Label', 'Entry', 'Canvas', 'Frame', 'filedialog', 'messagebox', 'simpledialog',
-                        'colorchooser', 'commondialog', 'Toplevel', 'Menu', 'Checkbutton', 'Radiobutton', 'Scale',
-                        'Scrollbar', 'Listbox', 'Text', 'Spinbox'],
-            'threading': ['Thread', 'Lock', 'RLock', 'Condition', 'Semaphore', 'BoundedSemaphore', 'Event', 'Timer',
-                        'Barrier', 'BrokenBarrierError', 'current_thread', 'main_thread', 'active_count', 'enumerate',
-                        'settrace', 'setprofile'],
-            'subprocess': ['Popen', 'PIPE', 'STDOUT', 'call', 'check_call', 'check_output', 'run', 'CalledProcessError',
-                        'TimeoutExpired', 'CompletedProcess', 'DEVNULL'],
-            'os': ['path', 'environ', 'getcwd', 'listdir', 'mkdir', 'remove', 'rename', 'system', 'walk', 'chdir',
-                'getenv', 'makedirs', 'rmdir', 'scandir'],
-            'sys': ['argv', 'path', 'exit', 'version', 'platform', 'modules', 'executable', 'stdin', 'stdout', 'stderr',
-                    'gettrace', 'settrace'],
-            'json': ['loads', 'dumps', 'load', 'dump', 'JSONEncoder', 'JSONDecoder', 'JSONDecodeError'],
-            're': ['search', 'match', 'findall', 'sub', 'compile', 'escape', 'IGNORECASE', 'MULTILINE', 'DOTALL'],
-            'datetime': ['datetime', 'date', 'time', 'timedelta', 'now', 'today', 'strftime', 'strptime', 'tzinfo',
-                        'timezone'],
-            'math': ['sqrt', 'sin', 'cos', 'tan', 'pi', 'e', 'log', 'exp', 'ceil', 'floor', 'fabs', 'gcd'],
-            'random': ['random', 'randint', 'choice', 'shuffle', 'uniform', 'seed', 'randrange', 'sample', 'choices'],
-        }
-
-        if module_name in hardcoded_stdlib:
-            suggestions.update(hardcoded_stdlib[module_name])
-            # Debug no console
-            print(f"DEBUG: Sugestões hardcoded para '{module_name}': {list(suggestions)[:10000000]}...")
-            return sorted(list(suggestions))
-
-        try:
-            # Tenta importar o módulo para obter seus atributos
-            if module_name in sys.builtin_module_names:
-                # Módulos built-in
-                builtin_contents = {
-                    'os': ['path', 'environ', 'getcwd', 'listdir', 'mkdir', 'remove'],
-                    'sys': ['argv', 'path', 'exit', 'version', 'platform'],
-                    'json': ['loads', 'dumps', 'load', 'dump'],
-                    're': ['search', 'match', 'findall', 'sub', 'compile', 'IGNORECASE'],
-                    'datetime': ['datetime', 'date', 'time', 'timedelta', 'now', 'today']
-                }
-                if module_name in builtin_contents:
-                    suggestions.update(builtin_contents[module_name])
-            else:
-                # Tenta importar o módulo
-                module = importlib.import_module(module_name)
-                for attr_name in dir(module):
-                    if not attr_name.startswith('_'):
-                        suggestions.add(attr_name)
-                # Debug
-                print(f"DEBUG: Import de '{module_name}' OK, {len(suggestions)} sugestões.")
-        except ImportError as e:
-            # Debug
-            print(f"DEBUG: Erro ao importar '{module_name}': {e} (usando hardcoded se disponível).")
-
-        return sorted(list(suggestions))
-
-
-    def get_attribute_suggestions(self, obj_name):
-        """Sugestões para atributos de objeto - APRIMORADO"""
-        suggestions = set()
-
-        # Métodos comuns baseados no tipo de objeto
-        common_methods = {
-            'str': ['upper', 'lower', 'strip', 'split', 'join', 'replace', 'find',
-                    'startswith', 'endswith', 'format', 'isalpha', 'isdigit'],
-            'list': ['append', 'remove', 'pop', 'sort', 'reverse', 'index', 'count',
-                    'extend', 'insert', 'clear', 'copy'],
-            'dict': ['get', 'keys', 'values', 'items', 'update', 'pop', 'clear',
-                    'copy', 'setdefault'],
-            'set': ['add', 'remove', 'discard', 'union', 'intersection', 'difference'],
-            # pandas
-            'df': ['head', 'tail', 'describe', 'info', 'columns', 'shape', 'loc', 'iloc'],
-        }
-
-        # Verifica se é um objeto conhecido
-        for obj_type, methods in common_methods.items():
-            if obj_type in obj_name.lower():
-                suggestions.update([f"{m}()" for m in methods])
-                break
-
-        # Se não encontrou, adiciona métodos genéricos
-        if not suggestions:
-            generic_methods = ['__str__', '__repr__', '__len__', '__getitem__',
-                            '__setitem__', '__iter__', '__next__']
-            suggestions.update([f"{m}()" for m in generic_methods])
-
-        return suggestions
-
-
-    def get_function_suggestions(self):
-        """Sugestões para chamadas de função - NOVO"""
-        suggestions = set()
-
-        # Adiciona funções built-in
-        builtins = [
-            'print', 'len', 'str', 'int', 'float', 'list', 'dict', 'set', 'tuple',
-            'range', 'input', 'open', 'type', 'sum', 'min', 'max', 'abs', 'round',
-            'sorted', 'reversed', 'enumerate', 'zip', 'map', 'filter', 'any', 'all',
-            'isinstance', 'issubclass', 'hasattr', 'getattr', 'setattr'
-        ]
-        suggestions.update([f"{b}()" for b in builtins])
-
-        return suggestions
-
-
-    def get_general_suggestions(self):
-        """Sugestões gerais - COMPLETAMENTE REFEITO"""
-        suggestions = set()
-
-        # 1. Palavras-chave Python
-        keywords = {
-            "if", "else", "elif", "for", "while", "break", "continue", "pass", "return",
-            "try", "except", "finally", "raise", "def", "class", "lambda", "global",
-            "nonlocal", "import", "from", "as", "and", "or", "not", "in", "is",
-            "True", "False", "None", "with", "yield", "assert", "del", "async", "await"
-        }
-        suggestions.update(keywords)
-
-        # 2. Funções built-in
-        builtins = [
-            "print", "len", "str", "int", "float", "list", "dict", "set", "tuple",
-            "range", "input", "open", "type", "sum", "min", "max", "abs", "round",
-            "sorted", "reversed", "enumerate", "zip", "map", "filter", "any", "all",
-            "bool", "chr", "ord", "dir", "help", "id", "isinstance", "issubclass",
-            "getattr", "setattr", "hasattr", "vars", "locals", "globals", "exec", "eval"
-        ]
-        suggestions.update([f"{b}()" for b in builtins])
-
-        # 3. Definições locais do arquivo atual
-        local_defs = self.extract_local_definitions()
-        suggestions.update(local_defs)
-
-        # 4. Módulos importados
-        imported_modules = self.extract_imported_modules()
-        suggestions.update(imported_modules)
-
-        return suggestions
-
-    def extract_local_definitions(self):
-        """Extrai definições locais do código atual - APRIMORADO"""
-        definitions = set()
-
-        try:
-            # Usa regex para encontrar definições rapidamente
-            code = self.text
-
-            # Funções
-            func_pattern = r'def\s+([a-zA-Z_][a-zA-Z0-9_]*)'
-            functions = re.findall(func_pattern, code)
-            definitions.update([f"{f}()" for f in functions])
-
-            # Classes
-            class_pattern = r'class\s+([a-zA-Z_][a-zA-Z0-9_]*)'
-            classes = re.findall(class_pattern, code)
-            definitions.update(classes)
-
-            # Variáveis (apenas as mais significativas)
-            var_pattern = r'^(\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*[^=\s]'
-            var_matches = re.findall(var_pattern, code, re.MULTILINE)
-            for _, var in var_matches:
-                if len(var) > 2 and not var.startswith('_'):  # Filtra variáveis muito curtas e privadas
-                    definitions.add(var)
-
-        except Exception as e:
-            print(f"Erro ao extrair definições locais: {e}")
-
-        return definitions
-
-
-    def extract_imported_modules(self):
-        """Extrai módulos importados - APRIMORADO"""
-        modules = set()
-
-        try:
-            code = self.text
-
-            # Import simples: import module
-            simple_imports = re.findall(r'import\s+([a-zA-Z_][a-zA-Z0-9_]*)', code)
-            modules.update(simple_imports)
-
-            # Import from: from module import ...
-            from_imports = re.findall(r'from\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+import', code)
-            modules.update(from_imports)
-
-            # Import com alias: import module as alias
-            alias_imports = re.findall(r'import\s+([a-zA-Z_][a-zA-Z0-9_]*)\s+as', code)
-            modules.update(alias_imports)
-
-        except Exception as e:
-            print(f"Erro ao extrair módulos importados: {e}")
-
-        return modules
     def setup_lsp_system(self):
         """Configura sistema LSP no IDE"""
-        try:
-            self.lsp_manager = LSPManager(self)
-            # Conectar sinais existentes para LSP
-            self.tab_widget.currentChanged.connect(self._on_tab_changed_lsp)
-            print("✅ Sistema LSP configurado")
-        except Exception as e:
-            print(f"❌ Erro ao configurar LSP: {e}")
+        self.lsp_manager = LSPManager(self)
+        
+        # Conectar sinais existentes para LSP
+        self.tab_widget.currentChanged.connect(self._on_tab_changed_lsp)
         
     def _on_tab_changed_lsp(self, index):
         """Manipula mudança de aba para LSP"""
         if index >= 0:
             widget = self.tab_widget.widget(index)
-            if hasattr(widget, 'editor') and hasattr(widget, 'file_path') and widget.file_path:
+            if isinstance(widget, EnhancedCodeEditor) and widget.file_path:
                 # Atualizar LSP com documento atual
                 if self.lsp_manager:
-                    content = widget.editor.toPlainText()
+                    content = widget.toPlainText()
                     self.lsp_manager.open_document(widget.file_path, content)
 
     def set_project(self, project_path=None):
@@ -4277,39 +3990,56 @@ Thumbs.db
 
     def closeEvent(self, event):
         """Lida com o fechamento da aplicação de forma segura"""
-        print("🔄 Finalizando aplicação...")
+        self.debug_log("🔄 Finalizando aplicação...", "INFO")
         
-        # Finalizar LSP primeiro
-        if hasattr(self, 'lsp_manager'):
-            print("🔄 Finalizando LSP...")
-            self.lsp_manager.shutdown()
-
+        # CORREÇÃO: Verificar se LSP manager existe antes de shutdown
+        if hasattr(self, 'lsp_manager') and self.lsp_manager is not None:
+            self.debug_log("🔄 Finalizando LSP...", "INFO")
+            try:
+                self.lsp_manager.shutdown()
+            except Exception as e:
+                self.debug_log(f"❌ Erro ao finalizar LSP: {e}", "ERROR")
+        else:
+            self.debug_log("ℹ️ LSP manager não inicializado", "INFO")
+    
+        # CORREÇÃO: Parar shell process de forma segura
+        if hasattr(self, 'shell_process') and self.shell_process:
+            self.debug_log("🔄 Parando shell process...", "INFO")
+            try:
+                if self.shell_process.state() == QProcess.Running:
+                    self.shell_process.terminate()
+                    if not self.shell_process.waitForFinished(1000):
+                        self.shell_process.kill()
+                        self.shell_process.waitForFinished(1000)
+            except Exception as e:
+                self.debug_log(f"❌ Erro ao parar shell: {e}", "ERROR")
+    
         # Para workers em execução de forma segura
-        if hasattr(self, 'auto_complete_worker') and self.auto_complete_worker:
-            print("🔄 Parando worker de autocomplete...")
-            self.auto_complete_worker.stop()
-            
-        if hasattr(self, 'linter_worker') and self.linter_worker:
-            print("🔄 Parando worker de linting...")
-            self.linter_worker.stop()
-            
-        if hasattr(self, 'debug_worker') and self.debug_worker:
-            print("🔄 Parando worker de debug...")
-            self.debug_worker.stop()
-
-        # Para todos os processos
-        print("🔄 Parando processos...")
-        self.stop_execution()
-
+        workers = [
+            ('auto_complete_worker', 'autocomplete'),
+            ('linter_worker', 'linting'), 
+            ('debug_worker', 'debug')
+        ]
+        
+        for worker_attr, worker_name in workers:
+            if hasattr(self, worker_attr) and getattr(self, worker_attr):
+                self.debug_log(f"🔄 Parando worker de {worker_name}...", "INFO")
+                try:
+                    getattr(self, worker_attr).stop()
+                except Exception as e:
+                    self.debug_log(f"❌ Erro ao parar worker {worker_name}: {e}", "ERROR")
+    
         # Finaliza plugins
         if hasattr(self, 'plugin_manager'):
-            print("🔄 Finalizando plugins...")
-            self.plugin_manager.shutdown_plugins()
-
-        # Aguarda um pouco para garantir que tudo foi finalizado
-        QTimer.singleShot(100, event.accept)
-        
-        print("✅ Aplicação finalizada com sucesso")
+            self.debug_log("🔄 Finalizando plugins...", "INFO")
+            try:
+                self.plugin_manager.shutdown_plugins()
+            except Exception as e:
+                self.debug_log(f"❌ Erro ao finalizar plugins: {e}", "ERROR")
+    
+        # Aceita o evento de fechamento
+        event.accept()
+        self.debug_log("👋 Aplicação finalizada com sucesso", "SUCCESS")
     def update_minimap_theme(self):
         """Atualiza o tema do NOVO minimap baseado no tema atual"""
         if hasattr(self, 'minimap_widget'):
@@ -4472,3 +4202,164 @@ Thumbs.db
             
         except Exception as e:
             print(f"Erro ao limpar indicadores: {e}")
+    def setup_syntax_highlighting_system(self):
+        """Configura o sistema de syntax highlighting"""
+        try:
+            self.syntax_highlighting_manager = SyntaxHighlightingManager(self)
+            self.debug_log("Sistema de syntax highlighting configurado", "SUCCESS")
+        except Exception as e:
+            self.debug_log(f"Erro ao configurar syntax highlighting: {e}", "ERROR")
+    
+    def setup_autocomplete(self):
+        """Configura o sistema unificado de autocomplete - VERSÃO MAIS ROBUSTA"""
+        try:
+            # Sistema de fallback seguro
+            class BasicAutoCompleteSystem:
+                def __init__(self, parent=None):
+                    self.parent = parent
+                    self.enabled = True
+                    self.suggestions = [
+                        "print", "def", "class", "if", "else", "for", "while", 
+                        "import", "from", "return", "True", "False", "None"
+                    ]
+                
+                def get_suggestions(self, text, cursor_position, file_path="", project_path=""):
+                    return self.suggestions
+                
+                def show_completions(self, editor, suggestions, position):
+                    if suggestions and self.enabled:
+                        print(f"📝 Autocomplete: {len(suggestions)} sugestões disponíveis")
+                    elif not self.enabled:
+                        print("🔴 Autocomplete desativado")
+            
+            # Usar o sistema básico por enquanto
+            self.autocomplete_widget = BasicAutoCompleteSystem(self)
+            
+            # Configurar timer para autocomplete automático
+            self.autocomplete_timer = QTimer()
+            self.autocomplete_timer.setSingleShot(True)
+            self.autocomplete_timer.timeout.connect(self.trigger_unified_autocomplete)
+            
+            # Atalho manual
+            QShortcut(QKeySequence("Ctrl+Space"), self).activated.connect(
+                self.trigger_manual_autocomplete
+            )
+            
+            self.debug_log("✅ Sistema de autocomplete básico configurado", "SUCCESS")
+            
+        except Exception as e:
+            self.debug_log(f"❌ Erro crítico no autocomplete: {e}", "ERROR")
+            # Sistema mínimo de fallback
+            self.autocomplete_widget = type('MinimalAutoComplete', (), {'enabled': False})()
+            
+    def setup_plugin_system(self):
+        """Inicializa o sistema de plugins de forma segura"""
+        try:
+            # CORREÇÃO DEFINITIVA: Criar PluginInfo se não existir
+            try:
+                from core.plugin_system import PluginInfo
+            except ImportError:
+                # Criar definição local do PluginInfo
+                class PluginInfo:
+                    def __init__(self, name, version="1.0.0", description="", author="", plugin_class=None):
+                        self.name = name
+                        self.version = version
+                        self.description = description
+                        self.author = author
+                        self.plugin_class = plugin_class
+                    
+                    def __repr__(self):
+                        return f"PluginInfo(name='{self.name}', version='{self.version}')"
+                
+                # Adicionar ao módulo core.plugin_system
+                import core.plugin_system as plugin_module
+                plugin_module.PluginInfo = PluginInfo
+                globals()['PluginInfo'] = PluginInfo
+                
+                self.debug_log("PluginInfo criado localmente", "INFO")
+            
+            self.plugin_manager = PluginManager(self)
+            self.plugin_manager.load_plugins()
+            self.integrate_plugins()
+            self.debug_log("Sistema de plugins inicializado", "SUCCESS")
+        except Exception as e:
+            self.debug_log(f"Erro ao inicializar plugins: {e}", "ERROR")
+    def setup_undo_redo_system(self):
+        """Configura o sistema de undo/redo"""
+        try:
+            # CORREÇÃO: Definir o método primeiro
+            def on_tab_changed_undo_redo(index):
+                """Atualiza undo/redo quando a aba muda"""
+                if index >= 0:
+                    QTimer.singleShot(50, self.update_undo_redo_actions)
+            
+            # Atribuir ao self
+            self.on_tab_changed_undo_redo = on_tab_changed_undo_redo
+            
+            # Conectar mudança de aba
+            self.tab_widget.currentChanged.connect(self.on_tab_changed_undo_redo)
+            self.debug_log("Sistema undo/redo configurado", "SUCCESS")
+        except Exception as e:
+            self.debug_log(f"Erro ao configurar undo/redo: {e}", "ERROR")
+    
+    def update_undo_redo_actions(self):
+        """Atualiza estado das ações undo/redo"""
+        try:
+            editor = self.get_current_editor()
+            if editor and hasattr(editor, 'document'):
+                # Aqui você pode atualizar a UI baseado na disponibilidade
+                undo_available = editor.document().isUndoAvailable()
+                redo_available = editor.document().isRedoAvailable()
+                
+                # Exemplo: atualizar status bar
+                status = f"Undo: {'✓' if undo_available else '✗'}, Redo: {'✓' if redo_available else '✗'}"
+                # self.statusBar().showMessage(status, 2000)
+                
+        except Exception as e:
+            print(f"Erro ao atualizar ações undo/redo: {e}")
+    
+    def setup_indicators(self):
+        """Configura indicadores visuais do IDE"""
+        try:
+            # Configurar cores dos indicadores
+            self.indicator_colors = {
+                'current_line': QColor(45, 45, 48, 80),
+                'error': QColor(255, 0, 0, 50),
+                'warning': QColor(255, 255, 0, 50),
+                'info': QColor(0, 0, 255, 30)
+            }
+            self.debug_log("Indicadores visuais configurados", "SUCCESS")
+        except Exception as e:
+            self.debug_log(f"Erro ao configurar indicadores: {e}", "ERROR")
+    
+    def setup_scope_header(self):
+        """Configura o header de escopo (classe/função atual)"""
+        try:
+            # Conectar sinais para atualizar escopo
+            self.tab_widget.currentChanged.connect(self.update_scope_display)
+            self.debug_log("Header de escopo configurado", "SUCCESS")
+        except Exception as e:
+            self.debug_log(f"Erro ao configurar header de escopo: {e}", "ERROR")
+    
+    def initialize_delayed_systems(self):
+        """Inicializa sistemas que dependem da UI estar pronta"""
+        try:
+            self.debug_log("Inicializando sistemas tardios...", "INFO")
+            
+            self.setup_plugin_system()
+            self.setup_undo_redo_system()
+            self.setup_indicators()
+            self.setup_scope_header()
+            
+            # Parse de argumentos de linha de comando
+            self.parse_command_line_args()
+            
+            self.debug_log("Todos os sistemas inicializados", "SUCCESS")
+        except Exception as e:
+            self.debug_log(f"Erro na inicialização tardia: {e}", "ERROR")
+    
+    def exception_hook(self, exctype, value, tb):
+        """Captura exceções globais"""
+        self.debug_log(f"ERRO GLOBAL: {exctype.__name__}: {value}", "ERROR")
+        traceback.print_exception(exctype, value, tb)
+        sys.__excepthook__(exctype, value, tb)

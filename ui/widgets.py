@@ -1,7 +1,6 @@
-from PySide6.QtWidgets import (QWidget, QTreeWidget, QListWidget, 
-                              QPlainTextEdit, QProgressBar)
-from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QPainter, QColor
+from PySide6.QtWidgets import QWidget, QTreeWidget, QListWidget,QPlainTextEdit, QProgressBar,QStyledItemDelegate,QFrame,QVBoxLayout,QToolBar,QHBoxLayout,QLabel,QPushButton
+from PySide6.QtCore import Qt, QSize,QRect
+from PySide6.QtGui import QPainter, QColor,QFont,QTextOption,QAction
 
 class OutlineWidget(QWidget):
     """Widget que mostra a estrutura do código (classes e funções) igual ao VS Code"""

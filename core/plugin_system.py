@@ -1,5 +1,5 @@
-from PySide6.QtWidgets import QAction, QMessageBox
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtGui import QAction
+from PySide6.QtWidgets import QMessageBox
 from abc import ABC, abstractmethod
 from typing import List, Dict, Any
 from dataclasses import dataclass
@@ -10,15 +10,18 @@ import tempfile
 import zipfile
 import shutil
 from urllib.request import urlretrieve
+from typing import Dict, List, Any, Optional
 
 
-@dataclass
+
+# ✅ ADICIONE ESTA CLASSE NO TOPO DO ARQUIVO:
 class PluginInfo:
-    name: str
-    version: str
-    author: str
-    description: str
-    enabled: bool = True
+    """Informações sobre um plugin"""
+    def __init__(self, name: str, version: str, description: str = "", author: str = ""):
+        self.name = name
+        self.version = version
+        self.description = description
+        self.author = author  # ✅ ADICIONE ESTE PARÂMETRO
 
 
 class PluginBase(ABC):

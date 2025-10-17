@@ -2,6 +2,7 @@ from PySide6.QtWidgets import QListWidget, QListWidgetItem
 from PySide6.QtCore import QThread, Signal, Qt
 from PySide6.QtGui import QIcon, QFont
 
+
 class FloatingAutoCompleteWidget(QListWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -361,10 +362,10 @@ class HybridCompleter:
 class UnifiedSuggestionSystem:
     """Sistema unificado e hierárquico de sugestões"""
     
-    def __init__(self, editor):
+    def __init__(self, editor=None):  # ✅ CORREÇÃO: Tornar editor opcional
         self.editor = editor
         self.cache = {}
-        self.usage_stats = {}  # Estatísticas de uso para priorização
+        self.usage_stats = {} 
         
     def get_suggestions(self, code, cursor_position, file_path="", project_path=""):
         """Método principal unificado para obter todas as sugestões"""

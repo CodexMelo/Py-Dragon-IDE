@@ -1,9 +1,13 @@
-from PySide6.QtWidgets import QPlainTextEdit, QWidget, QVBoxLayout
-from PySide6.QtCore import Qt, QTimer, Signal
-from PySide6.QtGui import QFont, QTextCursor, QSyntaxHighlighter
-from .line_numbers import LineNumberArea
-from .code_folding import CodeFoldingArea
-
+from PySide6.QtWidgets import (QPlainTextEdit, QWidget, QVBoxLayout, QMenu, 
+                              QMessageBox, QFileDialog, QListWidget, QListWidgetItem,QTextEdit)
+from PySide6.QtCore import Qt, QTimer, QRect, QRegularExpression
+from PySide6.QtGui import (QFont, QTextCursor, QSyntaxHighlighter, QTextCharFormat, 
+                          QColor, QPainter, QPalette, QTextFormat)
+import os
+import re
+from editor.line_numbers import LineNumberArea
+from editor.code_folding import CodeFoldingArea
+from syntax.highlighters import HighlighterFactory
 
 
 class UnifiedCodeEditor(QPlainTextEdit):
@@ -51,35 +55,128 @@ class UnifiedCodeEditor(QPlainTextEdit):
         self.setup_final_settings()
         
         print(f"✅ Editor Unificado criado para: {file_path}")
+
     def get_suggestions(self, code, cursor_position, file_path="", project_path=""):
         """Método principal unificado para obter todas as sugestões"""
         try:
             context = self._analyze_context(code, cursor_position, file_path)
             suggestions = self._get_hierarchical_suggestions(context)
             filtered_suggestions = self._filter_and_prioritize(suggestions, context)
-            return filtered_suggestions[:25]  # ← APENAS ESTE RETURN
+            return filtered_suggestions[:25]
         except Exception as e:
             print(f"❌ Erro no sistema unificado: {e}")
-            return self
-    
+            return []  # CORREÇÃO: Retornar lista vazia
+
+    def _analyze_context(self, code, cursor_position, file_path):
+        """Analisa o contexto atual para sugestões"""
+        return {
+            'code': code,
+            'cursor_position': cursor_position,
+            'file_path': file_path,
+            'current_line': self._get_current_line(code, cursor_position),
+            'previous_char': self._get_previous_char(code, cursor_position)
+        }
+
+    def _get_current_line(self, code, cursor_position):
+        """Obtém a linha atual do cursor"""
+        lines = code.split('\n')
+        current_line_num = 0
+        chars_count = 0
+        
+        for i, line in enumerate(lines):
+            chars_count += len(line) + 1  # +1 para o \n
+            if chars_count >= cursor_position:
+                current_line_num = i
+                break
+        
+        return lines[current_line_num] if current_line_num < len(lines) else ""
+
+    def _get_previous_char(self, code, cursor_position):
+        """Obtém o caractere anterior ao cursor"""
+        if cursor_position > 0 and cursor_position <= len(code):
+            return code[cursor_position - 1]
+        return ""
+
+    def _get_hierarchical_suggestions(self, context):
+        """Obtém sugestões hierárquicas baseadas no contexto"""
+        suggestions = set()
+        
+        # Adiciona palavras-chave da linguagem
+        suggestions.update(self._get_language_keywords())
+        
+        # Adiciona definições locais
+        suggestions.update(self._extract_local_definitions())
+        
+        # Adiciona módulos do projeto
+        suggestions.update(self._get_project_modules())
+        
+        return list(suggestions)
+
+    def _filter_and_prioritize(self, suggestions, context):
+        """Filtra e prioriza sugestões baseadas no contexto"""
+        if not suggestions:
+            return []
+        
+        # Filtra por caractere atual se disponível
+        current_char = context.get('previous_char', '')
+        if current_char and current_char.isalpha():
+            filtered = [s for s in suggestions if s.lower().startswith(current_char.lower())]
+            if filtered:
+                return filtered
+        
+        return sorted(suggestions)
+
     def setup_autocomplete_system(self):
-        """Configura sistema completo de autocomplete"""
+        """Configura sistema completo de autocomplete - VERSÃO CORRIGIDA"""
         # Timer para autocomplete automático
         self.autocomplete_timer = QTimer(self)
         self.autocomplete_timer.setSingleShot(True)
         self.autocomplete_timer.timeout.connect(self.show_autocomplete)
         
         # Widget de autocomplete flutuante
-        self.autocomplete_widget = FloatingAutoCompleteWidget()
+        try:
+            from .autocomplete import FloatingAutoCompleteWidget
+            self.autocomplete_widget = FloatingAutoCompleteWidget(self)
+        except ImportError:
+            # Fallback se não conseguir importar
+            class BasicAutoCompleteWidget:
+                def __init__(self, parent):
+                    self.parent = parent
+                    self.enabled = True
+                
+                def show_completions(self, editor, suggestions, position=None):
+                    if suggestions:
+                        print(f"📝 Autocomplete: {len(suggestions)} sugestões")
+                
+                def hide(self):
+                    pass
+                
+                def isVisible(self):
+                    return False
+                    
+                def set_enabled(self, enabled):
+                    self.enabled = enabled
+            
+            self.autocomplete_widget = BasicAutoCompleteWidget(self)
         
         # Completador inteligente
-        self.completer = HybridCompleter()
+        try:
+            from .autocomplete import UnifiedSuggestionSystem
+            self.completer = UnifiedSuggestionSystem()
+        except ImportError:
+            # Fallback básico
+            class BasicCompleter:
+                def get_completions(self, text, cursor_position, file_path="", project_path=""):
+                    return ["print", "def", "class", "if", "else", "for", "while"]
+            
+            self.completer = BasicCompleter()
         
         # Variáveis de controle
         self.last_key_pressed = None
         self.force_show_autocomplete = False
         
         print("✅ Sistema de autocomplete configurado")
+
     def _get_fallback_suggestions(self):
         """Sugestões de fallback mínimas e seguras"""
         return [
@@ -87,9 +184,7 @@ class UnifiedCodeEditor(QPlainTextEdit):
             "from", "return", "True", "False", "None", "len", "str", "list", 
             "dict", "range", "type", "isinstance"
         ]
-        # REMOVER: get_unified_suggestions  # ← SE HOUVER ESTA LINHA, REMOVER
-        
-    
+
     def setup_basic_settings(self):
         """Configurações básicas do editor"""
         # Fonte e tabulação
@@ -115,6 +210,7 @@ class UnifiedCodeEditor(QPlainTextEdit):
         self.cursorPositionChanged.connect(self.highlight_current_line)
         
         self.update_line_number_area_width(0)
+
     def get_enhanced_suggestions(self):
         """Obtém sugestões melhoradas de forma unificada"""
         suggestions = set()
@@ -140,11 +236,16 @@ class UnifiedCodeEditor(QPlainTextEdit):
             
             # 5. Remove duplicatas e limita resultados
             unique_suggestions = sorted(list(suggestions))
-            return unique_suggestions[:10000]  # Limita a 25 sugestões
+            return unique_suggestions[:25]  # CORREÇÃO: 25 em vez de 10000
             
         except Exception as e:
             print(f"❌ Erro no enhanced suggestions: {e}")
             return self._get_fallback_suggestions()
+
+    def get_suggestions_for_autocomplete(self):
+        """Obtém sugestões básicas para autocomplete"""
+        return self.get_basic_suggestions()
+
     def setup_code_folding(self):
         """Configura sistema de folding de código"""
         self.folding_area = CodeFoldingArea(self)
@@ -159,7 +260,7 @@ class UnifiedCodeEditor(QPlainTextEdit):
             
         try:
             # Usa o sistema unificado de sugestões
-            suggestions = self.get_unified_suggestions()  # JÁ CORRETO
+            suggestions = self.get_unified_suggestions()
             
             if suggestions:
                 cursor_rect = self.cursorRect()
@@ -176,19 +277,43 @@ class UnifiedCodeEditor(QPlainTextEdit):
             except Exception as e2:
                 print(f"❌ Erro até no fallback: {e2}")
                 
+    # No seu método setup_syntax_highlighting()
     def setup_syntax_highlighting(self):
-            """Configura syntax highlighting"""
+        """Configura syntax highlighting - VERSÃO CORRIGIDA DEFINITIVA"""
+        try:
+            # Sistema básico que sempre funciona
             if self.file_path and self.file_path.endswith('.py'):
+                from syntax.highlighters import PythonHighlighter
                 self.highlighter = PythonHighlighter(self.document())
+                print("✅ Highlighter Python carregado")
+            elif self.file_path and self.file_path.endswith('.js'):
+                from syntax.highlighters import JavaScriptHighlighter
+                self.highlighter = JavaScriptHighlighter(self.document())
+                print("✅ Highlighter JavaScript carregado")
+            elif self.file_path and self.file_path.endswith(('.html', '.htm')):
+                from syntax.highlighters import HTMLHighlighter
+                self.highlighter = HTMLHighlighter(self.document())
+                print("✅ Highlighter HTML carregado")
+            elif self.file_path and self.file_path.endswith('.css'):
+                from syntax.highlighters import CSSHighlighter
+                self.highlighter = CSSHighlighter(self.document())
+                print("✅ Highlighter CSS carregado")
+            elif self.file_path and self.file_path.endswith('.json'):
+                from syntax.highlighters import JSONHighlighter
+                self.highlighter = JSONHighlighter(self.document())
+                print("✅ Highlighter JSON carregado")
             else:
-                # Highlighter genérico para outras linguagens
-                language = self.detect_language()
-                self.highlighter = AdvancedSyntaxHighlighter(self.document(), language)                
-
+                # Para outras linguagens, usa highlighter genérico
+                from syntax.highlighters import TextHighlighter
+                self.highlighter = TextHighlighter(self.document())
+                print("✅ Highlighter genérico carregado")
+                
+        except Exception as e:
+            print(f"❌ Erro no syntax highlighting: {e}")
+        # Fallback absoluto - nenhum highlighter
+            self.highlighter = None
     def setup_visual_indicators(self):
         """Configura indicadores visuais"""
-        self.code_indicators = CodeIndicators(self)
-        
         # Highlight da linha atual
         self.highlight_current_line()
     
@@ -197,7 +322,6 @@ class UnifiedCodeEditor(QPlainTextEdit):
         # Sinais básicos
         self.textChanged.connect(self.on_text_changed)
         self.cursorPositionChanged.connect(self.on_cursor_position_changed)
-        self.selectionChanged.connect(self.on_selection_changed)
         
         # Sinais para funcionalidades avançadas
         self.textChanged.connect(self.on_text_changed_for_outline)
@@ -295,10 +419,6 @@ class UnifiedCodeEditor(QPlainTextEdit):
             cursor.movePosition(QTextCursor.Left, QTextCursor.KeepAnchor)
             return cursor.selectedText()
         return ""
-    
-    
-    
-            
 
     def _get_language_keywords(self):
         """Retorna palavras-chave específicas da linguagem - MÉTODO ADICIONADO"""
@@ -330,6 +450,7 @@ class UnifiedCodeEditor(QPlainTextEdit):
         }
         
         return keywords_map.get(language, [])
+
     def _extract_local_definitions(self):
         """Extrai definições locais do código atual - MÉTODO ADICIONADO"""
         definitions = set()
@@ -432,13 +553,13 @@ class UnifiedCodeEditor(QPlainTextEdit):
     def highlight_current_line(self):
         """Destaca a linha atual"""
         extra_selections = []
-        
+    
         if not self.isReadOnly():
-            selection = QTextEdit.ExtraSelection()
+            selection = QTextEdit.ExtraSelection()  # ✅ CORREÇÃO: Use QTextEdit.ExtraSelection
             line_color = QColor(45, 45, 48, 60)
             selection.format.setBackground(line_color)
             selection.format.setProperty(QTextFormat.FullWidthSelection, True)
-            
+        
             selection.cursor = self.textCursor()
             selection.cursor.clearSelection()
             extra_selections.append(selection)
@@ -524,31 +645,7 @@ class UnifiedCodeEditor(QPlainTextEdit):
         """Processa mudanças do cursor para LSP"""
         # Implementar hover information se desejado
         pass
-    def show_autocomplete(self):
-        """Mostra sugestões de autocomplete - VERSÃO CORRIGIDA"""
-        if not self.autocomplete_widget.enabled:
-            return
-            
-        try:
-            # Usa o sistema unificado de sugestões
-            suggestions = self.get_unified_suggestions()
-            
-            if suggestions:
-                cursor_rect = self.cursorRect()
-                self.autocomplete_widget.show_completions(self, suggestions, cursor_rect.bottomLeft())
-                    
-        except Exception as e:
-            print(f"❌ Erro crítico no autocomplete: {e}")
-            # Tenta fallback básico em caso de erro crítico
-            try:
-                basic_suggestions = self._get_fallback_suggestions()
-                if basic_suggestions:
-                    cursor_rect = self.cursorRect()
-                    self.autocomplete_widget.show_completions(self, basic_suggestions, cursor_rect.bottomLeft())
-            except Exception as e2:
-                print(f"❌ Erro até no fallback: {e2}")
-        
-        
+
     def on_text_changed_for_outline(self):
         """Atualiza outline quando texto muda"""
         if hasattr(self, 'outline_timer'):
@@ -581,8 +678,6 @@ class UnifiedCodeEditor(QPlainTextEdit):
         redo_action.triggered.connect(self.redo)
         redo_action.setEnabled(self.document().isRedoAvailable())
 
-
-        
         menu.addSeparator()
         
         cut_action = menu.addAction("✂️ Recortar (Ctrl+X)")
@@ -610,7 +705,6 @@ class UnifiedCodeEditor(QPlainTextEdit):
         
         menu.exec(self.mapToGlobal(position))
 
-   
     def trigger_autocomplete(self):
         """Dispara o autocomplete após digitação - VERSÃO SIMPLIFICADA"""
         if not self.autocomplete_widget.enabled:
@@ -638,6 +732,7 @@ class UnifiedCodeEditor(QPlainTextEdit):
             else:
                 parent = None
         return parent
+
     def get_filtered_suggestions(self, current_char):
         """Obtém sugestões filtradas pela letra inicial"""
         all_suggestions = self.get_suggestions_for_autocomplete()
@@ -658,11 +753,6 @@ class UnifiedCodeEditor(QPlainTextEdit):
         """Quando posição do cursor muda"""
         self.highlight_current_line()
         self.update_status_info()
-
-    def on_selection_changed(self):
-        """Quando seleção muda"""
-        if hasattr(self, 'code_indicators'):
-            self.code_indicators.highlight_matching_words()
 
     def update_status_info(self):
         """Atualiza informações na barra de status"""
@@ -689,6 +779,7 @@ class UnifiedCodeEditor(QPlainTextEdit):
         self.line_number_area.setGeometry(
             QRect(cr.left() + 16, cr.top(), self.line_number_width, cr.height())
         )
+
     def get_language_keywords(self):
         """Retorna palavras-chave específicas da linguagem"""
         language = self.get_language()
@@ -738,39 +829,41 @@ class UnifiedCodeEditor(QPlainTextEdit):
             print(f"Erro extrair definições: {e}")
         
         return definitions
+
     def get_project_modules(self):
-            """Obtém módulos do projeto atual - MÉTODO SEGURO"""
-            modules = set()
-            try:
-                if not self.project_path or not os.path.exists(self.project_path):
-                    return modules
-                    
-                # Busca por arquivos Python no projeto
-                for root, dirs, files in os.walk(self.project_path):
-                    # Ignora diretórios comuns
-                    if '__pycache__' in dirs:
-                        dirs.remove('__pycache__')
-                    if '.git' in dirs:
-                        dirs.remove('.git')
-                    if 'venv' in dirs:
-                        dirs.remove('venv')
-                    
-                    for file in files:
-                        if file.endswith('.py') and not file.startswith('__'):
-                            # Calcula nome do módulo
-                            rel_path = os.path.relpath(os.path.join(root, file), self.project_path)
-                            module_name = rel_path.replace(os.sep, '.').rstrip('.py')
-                            
-                            # Remove __init__ do final se for pacote
-                            if module_name.endswith('.__init__'):
-                                module_name = module_name[:-9]
-                                
-                            modules.add(module_name)
-                            
-            except Exception as e:
-                print(f"Erro buscar módulos projeto: {e}")
+        """Obtém módulos do projeto atual - MÉTODO SEGURO"""
+        modules = set()
+        try:
+            if not self.project_path or not os.path.exists(self.project_path):
+                return modules
                 
-            return modules
+            # Busca por arquivos Python no projeto
+            for root, dirs, files in os.walk(self.project_path):
+                # Ignora diretórios comuns
+                if '__pycache__' in dirs:
+                    dirs.remove('__pycache__')
+                if '.git' in dirs:
+                    dirs.remove('.git')
+                if 'venv' in dirs:
+                    dirs.remove('venv')
+                
+                for file in files:
+                    if file.endswith('.py') and not file.startswith('__'):
+                        # Calcula nome do módulo
+                        rel_path = os.path.relpath(os.path.join(root, file), self.project_path)
+                        module_name = rel_path.replace(os.sep, '.').rstrip('.py')
+                        
+                        # Remove __init__ do final se for pacote
+                        if module_name.endswith('.__init__'):
+                            module_name = module_name[:-9]
+                            
+                        modules.add(module_name)
+                        
+        except Exception as e:
+            print(f"Erro buscar módulos projeto: {e}")
+            
+        return modules
+
     def get_language(self):
         """Obtém a linguagem do arquivo atual"""
         if not self.file_path:
@@ -803,6 +896,32 @@ class UnifiedCodeEditor(QPlainTextEdit):
         }
         return language_map.get(extension, 'text')
     
+    def get_unified_suggestions(self):
+        """Sistema unificado de sugestões - VERSÃO CORRIGIDA"""
+        try:
+            # Usa o completador do IDE se disponível
+            ide = self.get_ide()
+            if ide and hasattr(ide, 'completer'):
+                code = self.toPlainText()
+                cursor_position = self.textCursor().position()
+                
+                suggestions = ide.completer.get_completions(
+                    code, 
+                    cursor_position,
+                    self.file_path,
+                    getattr(ide, 'project_path', "")
+                )
+                
+                if suggestions:
+                    return suggestions[:25]  # Limita a 25 sugestões
+            
+            # Fallback para sistema interno
+            return self.get_enhanced_suggestions()
+            
+        except Exception as e:
+            print(f"❌ Erro no unified suggestions: {e}")
+            return self._get_fallback_suggestions()
+
     def keyPressEvent(self, event):
         """Manipula eventos de teclado unificados"""
         try:
@@ -866,6 +985,7 @@ class UnifiedCodeEditor(QPlainTextEdit):
             super().keyPressEvent(event)
 
 
+# ... (o restante do código para EnhancedCodeEditor e EditorTab permanece similar)
 class EnhancedCodeEditor(UnifiedCodeEditor):
     def __init__(self, text="", cursor_position=0, file_path="", project_path="", parent=None):
         super().__init__(text, cursor_position, file_path, project_path, parent)
@@ -873,7 +993,7 @@ class EnhancedCodeEditor(UnifiedCodeEditor):
         # Configurações específicas do EnhancedCodeEditor
         self.highlighting_manager = None
         self.syntax_highlighter = None
-        self.code_indicators = CodeIndicators(self)
+       
         self.lsp_manager = None
         self.lsp_completions = []
         self.minimap = None
@@ -889,7 +1009,6 @@ class EnhancedCodeEditor(UnifiedCodeEditor):
         """Configura conexões de sinais específicas do EnhancedCodeEditor"""
         # Conectar sinais para syntax highlighting e indicadores
         self.cursorPositionChanged.connect(self.on_cursor_position_changed)
-        self.selectionChanged.connect(self.on_selection_changed)
         self.textChanged.connect(self.on_text_changed)
         
         # Conectar sinais para LSP
@@ -897,19 +1016,6 @@ class EnhancedCodeEditor(UnifiedCodeEditor):
         self.cursorPositionChanged.connect(self._on_cursor_changed_for_lsp)
 
    
-
-    def on_cursor_position_changed(self):
-        """Quando a posição do cursor muda"""
-        if hasattr(self, 'code_indicators'):
-            self.code_indicators.highlight_current_line()
-        
-        # Atualiza informações na barra de status se possível
-        self.update_status_info()
-
-    def on_selection_changed(self):
-        """Quando a seleção muda"""
-        if hasattr(self, 'code_indicators'):
-            self.code_indicators.highlight_matching_words()
 
     def on_text_changed(self):
         """Quando o texto é alterado"""
@@ -1074,7 +1180,7 @@ class EnhancedCodeEditor(UnifiedCodeEditor):
         ]
 
     def get_unified_suggestions(self):
-        """Sistema unificado de sugestões - CORREÇÃO DO MÉTODO AUSENTE"""
+        """Sistema unificado de sugestões - VERSÃO CORRIGIDA"""
         try:
             # Usa o completador do IDE se disponível
             ide = self.get_ide()

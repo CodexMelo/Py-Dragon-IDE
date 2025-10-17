@@ -1,10 +1,8 @@
+import os  # ✅ ADICIONE ESTE IMPORT
+import sys
 from PySide6.QtWidgets import QPlainTextEdit
-from PySide6.QtCore import QProcess
-from PySide6.QtGui import QKeyEvent
-
-
-
-
+from PySide6.QtGui import QFont, QTextCursor
+from PySide6.QtCore import Qt, QProcess
 class TerminalTextEdit(QPlainTextEdit):
     def __init__(self, parent=None):
         super().__init__(parent)
