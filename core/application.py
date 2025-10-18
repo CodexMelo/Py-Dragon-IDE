@@ -4712,3 +4712,6 @@ Thumbs.db
                 
         except Exception as e:
             print(f"❌ Erro no teste de plugins: {e}")
+
+
+

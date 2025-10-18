@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from PySide6.QtCore import QTimer
 from PySide6.QtNetwork import QLocalSocket, QLocalServer
 
-# Import absoluto
+# Import absoluto    
 from core.application import IDE
 
 
