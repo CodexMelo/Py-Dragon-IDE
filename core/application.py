@@ -30,12 +30,12 @@ from PySide6.QtWidgets import (
     QDockWidget, QPlainTextEdit, QLabel, QInputDialog, QPushButton, 
     QFileSystemModel, QTreeView, QStyledItemDelegate, QDialog,
     QListWidgetItem, QToolButton, QFontDialog, QProgressDialog,
-    QGroupBox, QTextEdit  # ADICIONADOS
+    QGroupBox, QTextEdit,  QTabWidget # ADICIONADOS
 )
 from PySide6.QtCore import (
     Qt, QTimer, QSettings, QSize, QProcess, QDir, QModelIndex,
     QThread, QObject, Signal, QEvent, QRegularExpression, QRect,
-    QItemSelectionModel, QStringListModel
+    QItemSelectionModel, QStringListModel, QProcessEnvironment
 )
 from PySide6.QtGui import (
     QKeySequence, QIcon, QFont, QPalette, QColor, QAction, 
@@ -94,7 +94,10 @@ from ui.dialogs import (
 from cache.module_cache import ModuleCacheManager
 
 # Debug
-from debug.terminal import TerminalTextEdit, DebugTerminal
+from debug.terminal import SystemTerminalWrapper, TerminalTextEdit
+from debug.debug_system import  DebugTerminal, DebugWorker
+
+
 
 
 
@@ -112,31 +115,37 @@ from debug.terminal import TerminalTextEdit, DebugTerminal
 class IDE(QMainWindow):
     def __init__(self):
         super().__init__()
-        
     
-    # DEPOIS: Inicializar atributos
+    # ✅ CORREÇÃO: Inicializar variáveis PRIMEIRO
         self._initialize_variables()
         self._initialize_debug_log()
-        self.setup_plugins()  # O IDE inicializa os plugins
-
-    # DEPOIS: configurar a UI
-        self.setup_managers()  # ✅ AGORA debug_log ESTÁ DEFINIDO
-        self.setup_ui()
-        self.setup_connections()
-        self.setup_shortcuts()
     
-    # Configurar sistemas avançados
-        self.setup_syntax_highlighting_system()
-        self.setup_autocomplete()
-    
-    # CORREÇÃO: Inicializar LSP de forma segura
-        self.setup_lsp_system()
-    
-    # Configurar exceções globais
-        sys.excepthook = self.exception_hook
-    
-    # CORREÇÃO: Inicialização sequencial com delays
-        QTimer.singleShot(100, self.initialize_delayed_systems)
+    # ✅ CORREÇÃO: Configurar UI DEPOIS das variáveis
+        try:
+            self.setup_plugins()
+            self.setup_managers()
+            self.setup_ui()  # ✅ Isso vai chamar setup_main_tabs e setup_terminal_tab
+            self.setup_connections()
+            self.setup_shortcuts()
+            
+        # Configurar sistemas avançados
+            self.setup_syntax_highlighting_system()
+            self.setup_autocomplete()
+        
+        # CORREÇÃO: Inicializar LSP de forma segura
+            self.setup_lsp_system()
+        
+        # Configurar exceções globais
+            sys.excepthook = self.exception_hook
+        
+        # CORREÇÃO: Inicialização sequencial com delays
+            QTimer.singleShot(100, self.initialize_delayed_systems)
+        
+            self.debug_log("IDE inicializado com sucesso", "SUCCESS")
+        
+        except Exception as e:
+            self.debug_log(f"Erro na inicialização do IDE: {e}", "ERROR")
+            QMessageBox.critical(self, "Erro", f"Falha ao iniciar IDE: {e}")
 
     def _initialize_variables(self):
         """INICIALIZAÇÃO SEGURA: Define TODAS as variáveis com valores padrão"""
@@ -154,7 +163,7 @@ class IDE(QMainWindow):
         self.editor = None
         
         # Inicializar processos como None
-        self.shell_process = None
+             
         self.debug_process = None
         self.current_process = None
     
@@ -167,7 +176,7 @@ class IDE(QMainWindow):
         self.is_linting = False
         self.pending_lint = False
         self.last_lint_content = ""
-
+        self.system_terminal_wrapper = None
         # UI components - inicializar como None
         self.problems_list = None
         self.file_model = None
@@ -191,7 +200,7 @@ class IDE(QMainWindow):
         self.current_function = "Nenhuma"
         
         # CORREÇÃO: Adicionar atributos faltantes para terminal
-        self.terminal_process_started = False
+        
         self.terminal_dock = None
         
         # CORREÇÃO: Adicionar atributos para autocomplete
@@ -230,6 +239,8 @@ class IDE(QMainWindow):
         self.python_version_manager = None
         self.theme_manager = None
         self.indentation_checker = None
+    
+    
     def _initialize_debug_log(self):
         """Inicializa o sistema de logging PRIMEIRO"""
     # Definir o método debug_log antes de qualquer uso
@@ -255,24 +266,41 @@ class IDE(QMainWindow):
         try:
             self.debug_log("🔄 Inicializando sistemas atrasados...")
             
-            # Configurar escopo
+        # Configurar escopo
             self.setup_scope_header()
-            
-            # Configurar indicadores visuais
+        
+        # Configurar indicadores visuais
             self.setup_indicators()
-            
-            # Conectar sinais de undo/redo
+        
+        # Conectar sinais de undo/redo
             QTimer.singleShot(200, self.setup_undo_redo_connections)
-            
-            # Atualizar outline inicial
+        
+        # Atualizar outline inicial
             if hasattr(self, 'outline_widget'):
                 QTimer.singleShot(300, self.outline_widget.refresh_outline)
-                
-            self.debug_log("✅ Sistemas atrasados inicializados", "SUCCESS")
             
+        # ✅ REMOVIDO: Não mostrar terminal automaticamente
+        # QTimer.singleShot(2000, lambda: self.show_terminal())
+    
+            self.debug_log("✅ Sistemas atrasados inicializados", "SUCCESS")
+        
         except Exception as e:
             self.debug_log(f"❌ Erro em sistemas atrasados: {e}", "ERROR")
-            
+
+    def get_terminal_state(self):
+        """Retorna o estado atual do terminal"""
+        try:
+            for dock in self.findChildren(QDockWidget):
+                if dock.windowTitle() == "Output":
+                    return {
+                        'visible': dock.isVisible(),
+                        'available': True,
+                        'tab_count': self.output_tabs.count() if hasattr(self, 'output_tabs') else 0
+                    }
+            return {'visible': False, 'available': False, 'tab_count': 0}
+        except Exception as e:
+            self.debug_log(f"Erro ao verificar estado do terminal: {e}", "ERROR")
+            return {'visible': False, 'available': False, 'tab_count': 0}         
         
     def setup_managers(self):
 	    """Inicializa todos os gerenciadores do sistema - VERSÃO MAIS SEGURA"""
@@ -648,19 +676,86 @@ class IDE(QMainWindow):
     
 
     def setup_ui(self):
-        self.setWindowTitle("Py Dragon Studio IDE")
-        self.setGeometry(100, 100, 1400, 900)
+        """Configura a interface do usuário - VERSÃO CORRIGIDA"""
+        try:
+            self.setWindowTitle("Py Dragon Studio IDE")
+            self.setGeometry(100, 100, 1400, 900)
+    
+            self.set_dark_theme_optimized()
+    
+            # ✅ CORREÇÃO: Criar layout principal como objeto
+            self.main_layout = QVBoxLayout()
+            self.main_layout.setContentsMargins(0, 0, 0, 0)
+            self.main_layout.setSpacing(0)
+        
+            # Criar widget central
+            central_widget = QWidget()
+            central_widget.setLayout(self.main_layout)
+            self.setCentralWidget(central_widget)
 
-        self.set_dark_theme_optimized()
+        # ✅ CORREÇÃO: Chamar setup_main_tabs primeiro
+            self.setup_main_tabs()
+            self.setup_central_widget()
+            self.setup_docks()  # ✅ Isso cria o output_tabs
+            self.setup_menu()
+            self.setup_toolbar()
+            self.setup_statusbar()
 
-        self.setup_central_widget()
-        self.setup_docks()
-        self.setup_menu()
-        self.setup_toolbar()
-        self.setup_statusbar()
+       
+        
+            self.debug_log("UI configurada com sucesso", "SUCCESS")
+    
+        except Exception as e:
+            self.debug_log(f"Erro ao configurar UI: {e}", "ERROR")
+   
+    
+    def show_terminal(self):
+        """Força o terminal a ficar visível"""
+        try:
+            # Mostra o dock de output
+            for dock in self.findChildren(QDockWidget):
+                if dock.windowTitle() == "Output":
+                    dock.show()
+                    dock.raise_()
+                    break
+        
+            # Foca na aba do terminal
+            if hasattr(self, 'output_tabs'):
+                for i in range(self.output_tabs.count()):
+                    if self.output_tabs.tabText(i) == "💻 Terminal":
+                        self.output_tabs.setCurrentIndex(i)
+                        self.debug_log("✅ Terminal focado", "SUCCESS")
+                        return True
+            
+            self.debug_log("❌ Não foi possível encontrar a aba do terminal", "ERROR")
+            return False
+            
+        except Exception as e:
+            self.debug_log(f"Erro ao mostrar terminal: {e}", "ERROR")
+            return False 
 
-        self.start_shell()
-        self.check_python_version()
+    def setup_terminal_fallback(self):
+        try:
+            self.debug_log("Usando fallback para terminal", "INFO")
+            # Cria um terminal básico
+            self.terminal_text = QPlainTextEdit()
+            self.terminal_text.setReadOnly(True)
+            self.terminal_text.setFont(QFont("Consolas", 10))
+            self.terminal_text.setStyleSheet("""
+                QPlainTextEdit {
+                    background-color: #1e1e1e;
+                    color: #d4d4d4;
+                    border: none;
+                    font-family: 'Consolas', monospace;
+                }
+            """)
+            
+            if hasattr(self, 'main_tabs'):
+                self.main_tabs.addTab(self.terminal_text, "💻 Terminal")
+                
+            self.debug_log("Terminal fallback configurado", "SUCCESS")
+        except Exception as e:
+            self.debug_log(f"Erro no terminal fallback: {e}", "ERROR")
 
     def setup_central_widget(self):
         """Configura widget central com splitter para editor e minimap - CORRIGIDO"""
@@ -712,9 +807,14 @@ class IDE(QMainWindow):
 
 
     def setup_docks(self):
-        self.setup_left_dock()
-        #self.setup_right_dock()
-        self.setup_bottom_dock()
+        """Configura todas as docks - VERSÃO CORRIGIDA"""
+        try:
+            self.setup_left_dock()
+            self.setup_bottom_dock()  # ✅ GARANTIR QUE ESTA LINHA ESTÁ PRESENTE
+            self.debug_log("Docks configuradas", "SUCCESS")
+        except Exception as e:
+            self.debug_log(f"Erro ao configurar docks: {e}", "ERROR")
+            
 
     def setup_left_dock(self):
         left_dock = QDockWidget("Explorer", self)
@@ -796,39 +896,90 @@ class IDE(QMainWindow):
 
         parent_tabs.addTab(problems_widget, "⚠️ Problems")
 
-
-
-    def setup_bottom_dock(self):
-        bottom_dock = QDockWidget("Output", self)
-        bottom_dock.setFeatures(
-            QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable)
-
-        self.output_tabs = QTabWidget()
-        self.output_tabs.setTabPosition(QTabWidget.North)
-
-        self.setup_terminal_tab()
-        self.setup_output_tab()
-        self.setup_debug_tab()
-        self.setup_errors_tab()
-        self.setup_lint_tab()
-
-        bottom_dock.setWidget(self.output_tabs)
-        self.addDockWidget(Qt.BottomDockWidgetArea, bottom_dock)
-
     def setup_terminal_tab(self):
-        self.terminal_text = TerminalTextEdit(self)
-        self.terminal_text.setFont(QFont(self.current_font, 10))
-        self.terminal_text.setStyleSheet("""
-                                                QPlainTextEdit {
-                                                                background-color: #1e1e1e;
-                                                                color: #d4d4d4;
-                                                                border: none;
-                                                                font-family: 'Consolas', monospace;
-                                                }
-                                """)
-        self.output_tabs.addTab(
-            self.terminal_text, "💻 Terminal")
-
+        """Configura a aba de terminal - APENAS SISTEMA"""
+        try:
+            # Container principal do terminal
+            terminal_container = QWidget()
+            terminal_layout = QVBoxLayout(terminal_container)
+            terminal_layout.setContentsMargins(0, 0, 0, 0)
+        
+            # Abas para diferentes tipos de terminal
+            self.terminal_tabs = QTabWidget()
+            self.terminal_tabs.setStyleSheet("""
+                QTabWidget::pane {
+                    border: 1px solid #3e3e42;
+                    background-color: #1e1e1e;
+                }
+                QTabBar::tab {
+                    background-color: #2d2d30;
+                    color: #cccccc;
+                    padding: 8px 16px;
+                    border: 1px solid #3e3e42;
+                    border-bottom: none;
+                    border-top-left-radius: 4px;
+                    border-top-right-radius: 4px;
+                }
+                QTabBar::tab:selected {
+                    background-color: #1e1e1e;
+                    color: #569cd6;
+                }
+                QTabBar::tab:hover {
+                    background-color: #383838;
+                }
+            """)
+                
+            # ✅ APENAS SystemTerminalWrapper
+            try:
+                from debug.terminal import SystemTerminalWrapper
+                self.system_terminal_wrapper = SystemTerminalWrapper(self)
+                self.terminal_tabs.addTab(self.system_terminal_wrapper, "⚡ Sistema")
+            except ImportError as e:
+                self.debug_log(f"SystemTerminalWrapper não disponível: {e}", "WARNING")
+                # Fallback básico
+                system_fallback = QWidget()
+                layout = QVBoxLayout(system_fallback)
+                label = QLabel("Terminal do Sistema não disponível\nUse o menu Ferramentas para abrir terminal externo")
+                label.setAlignment(Qt.AlignCenter)
+                layout.addWidget(label)
+                self.terminal_tabs.addTab(system_fallback, "⚡ Sistema (Fallback)")
+            
+            terminal_layout.addWidget(self.terminal_tabs)
+            
+            # ✅ Adicionar ao output_tabs
+            if hasattr(self, 'output_tabs'):
+                self.output_tabs.addTab(terminal_container, "💻 Terminal")
+                self.debug_log("Terminal (apenas sistema) adicionado ao output_tabs", "SUCCESS")
+            else:
+                self.debug_log("output_tabs não disponível", "ERROR")
+            
+            self.debug_log("Terminal tab configurado com sucesso (apenas sistema)", "SUCCESS")
+            
+        except Exception as e:
+            self.debug_log(f"Erro ao configurar terminal tab: {e}", "ERROR")
+            
+        
+        
+        
+                
+    def check_terminal_visibility(self):
+        """Verifica se o terminal está visível e acessível"""
+        try:
+            # Verifica se o terminal está no output_tabs
+            if hasattr(self, 'output_tabs') and self.output_tabs:
+                for i in range(self.output_tabs.count()):
+                    if self.output_tabs.tabText(i) == "💻 Terminal":
+                        self.debug_log("✅ Terminal encontrado no output_tabs", "SUCCESS")
+                        return True
+            
+                self.debug_log("❌ Terminal NÃO encontrado no output_tabs", "ERROR")
+                return False
+            else:
+                self.debug_log("❌ output_tabs não disponível", "ERROR")
+                return False
+        except Exception as e:
+            self.debug_log(f"Erro ao verificar terminal: {e}", "ERROR")
+            return False            
     def setup_output_tab(self):
         self.output_text = QPlainTextEdit()
         self.output_text.setReadOnly(True)
@@ -899,7 +1050,7 @@ class IDE(QMainWindow):
 
         help_menu = menubar.addMenu("❓ Ajuda")
         self.setup_help_menu(help_menu)
-
+    
     def setup_tools_menu(self, tools_menu):
         """Configura o menu de ferramentas com as novas funcionalidades"""
 
@@ -962,12 +1113,10 @@ class IDE(QMainWindow):
         settings_action.setShortcut("Ctrl+,")
         settings_action.triggered.connect(self.show_settings)
         tools_menu.addAction(settings_action)
+   
+
     
-    def show_plugin_manager(self):
-        """Mostra gerenciador de plugins"""
-        QMessageBox.information(self, "Gerenciador de Plugins",
-                                "Sistema de plugins em desenvolvimento!\n\n"
-                                "Em breve você poderá instalar e gerenciar plugins.")
+
 
     def open_python_version_manager(self):
         """Abre o gerenciador de versões Python"""
@@ -1201,7 +1350,49 @@ class IDE(QMainWindow):
                 QPalette.HighlightedText, Qt.white)
 
         QApplication.setPalette(palette)
-
+    def setup_main_tabs(self):
+        """Configura as abas principais do IDE - VERSÃO CORRIGIDA"""
+        try:
+            self.main_tabs = QTabWidget()
+            self.main_tabs.setStyleSheet("""
+                QTabWidget::pane {
+                    border: 1px solid #3e3e42;
+                    background-color: #1e1e1e;
+                }
+                QTabBar::tab {
+                    background-color: #2d2d30;
+                    color: #cccccc;
+                    padding: 8px 16px;
+                    border: 1px solid #3e3e42;
+                    border-bottom: none;
+                    border-top-left-radius: 4px;
+                    border-top-right-radius: 4px;
+                }
+                QTabBar::tab:selected {
+                    background-color: #1e1e1e;
+                    color: #569cd6;
+                }
+                QTabBar::tab:hover {
+                    background-color: #383838;
+                }
+            """)
+        
+            # ✅ CORREÇÃO: Usar main_layout em vez de layout
+            if hasattr(self, 'main_layout'):
+                self.main_layout.addWidget(self.main_tabs)
+            else:
+                # Fallback: criar layout se não existir
+                self.main_layout = QVBoxLayout()
+                central_widget = QWidget()
+                central_widget.setLayout(self.main_layout)
+                self.setCentralWidget(central_widget)
+                self.main_layout.addWidget(self.main_tabs)
+                
+            self.debug_log("Abas principais configuradas", "SUCCESS")
+            
+        except Exception as e:
+            self.debug_log(f"Erro ao configurar abas principais: {e}", "ERROR")
+    
     def apply_syntax_theme(self, theme):
         """Aplica o tema de syntax highlighting a todos os editores (ATUALIZADO)"""
         if hasattr(self, 'syntax_highlighting_manager'):
@@ -1296,7 +1487,7 @@ class IDE(QMainWindow):
         if not editor:
             return
 
-        current_content = editor.toPlainText()
+        current_content = editor.toPlainText()  
 
         if (current_content != self.last_lint_content and
                 hasattr(editor, 'file_path') and
@@ -1333,7 +1524,8 @@ class IDE(QMainWindow):
             ("---", None, None),
             
             ("👁️ Mostrar/Ocultar Explorer", "Ctrl+Shift+E", self.toggle_explorer),
-            ("👁️ Mostrar/Ocultar Terminal", "Ctrl+`", self.toggle_terminal),
+            ("👁️ Mostrar/Ocultar Terminal", "Ctrl+`", self.toggle_terminal),  # ✅ APENAS ESTE
+
             ("👁️ Mostrar/Ocultar Minimap", "Ctrl+Shift+M", self.toggle_minimap),
             ("📊 Mostrar/Ocultar Outline", "Ctrl+Shift+O", self.toggle_outline),
             ("---", None, None),
@@ -2949,142 +3141,33 @@ Thumbs.db
 
 
     def _filter_ansi_codes(self, text):
-        """Remove códigos de escape ANSI do texto"""
+        """Remove códigos de escape ANSI de forma mais abrangente"""
         import re
-        # Regex para remover códigos ANSI (cores, título, etc.)
+        # Padrão mais abrangente para códigos ANSI
         ansi_escape = re.compile(r'''
             \x1B  # ESC
             (?:   # 7-bit C1 Fe (except CSI)
                 [@-Z\\-_]
-            |     # or [ for CSI, followed by a control sequence
-                \[
+            |     # ou
+                \[  # CSI
                 [0-?]*  # Parameter bytes
                 [ -/]*  # Intermediate bytes
                 [@-~]   # Final byte
             )
         ''', re.VERBOSE)
-            
-        return ansi_escape.sub('', text)
+        
+        # Remove também caracteres de controle problemáticos
+        cleaned = ansi_escape.sub('', text)
+        
+        # Remove outros caracteres de controle problemáticos
+        control_chars = re.compile(r'[\x00-\x1f\x7f-\x9f]')
+        cleaned = control_chars.sub('', cleaned)
+        
+        return cleaned
+    
     
 
-    def restart_terminal(self):
-        """Reinicia o terminal completamente"""
-        try:
-            self.start_shell()
-            if hasattr(self, 'terminal_text') and self.terminal_text:
-                self.terminal_text._setup_initial_prompt()
-        except Exception as e:
-            print(f"Erro ao reiniciar terminal: {e}")
-
-    def activate_project(self):
-        """Ativa projeto e venv no terminal - VERSÃO CORRIGIDA"""
-        try:
-            if (not hasattr(self, 'shell_process') or not self.shell_process
-                    or self.shell_process.state() != QProcess.Running):
-                print("ℹ️ Shell não está rodando")
-                return
-
-            if not hasattr(self, 'project_path') or not self.project_path:
-                print("ℹ️ Nenhum projeto aberto")
-                return
-
-            # CD para o projeto - COMANDOS SEPARADOS
-            if os.name == 'nt':
-                cd_cmd = f'cd /d "{self.project_path}"\n'
-            else:
-                cd_cmd = f'cd "{self.project_path}"\n'
-
-            self.shell_process.write(cd_cmd.encode('utf-8'))
-            print(f"📁 CD para: {self.project_path}")
-
-            # Aguarda o CD processar antes do próximo comando
-            QTimer.singleShot(500, self._activate_venv_after_cd)
-
-        except Exception as e:
-            print(f"❌ Erro ao ativar projeto: {str(e)}")
-
-    def _activate_venv_after_cd(self):
-        """Ativa venv após o CD - chamado por timer"""
-        try:
-            if not hasattr(self, 'project_path') or not self.project_path:
-                return
-
-            # Procura por venv
-            venv_paths = ['venv', '.venv', 'env']
-            venv_found = None
-            
-            for v in venv_paths:
-                vpath = os.path.join(self.project_path, v)
-                if os.path.isdir(vpath):
-                    venv_found = vpath
-                    break
-
-            if venv_found:
-                # Comando de ativação CORRETO
-                if os.name == 'nt':
-                    activate_cmd = f'"{os.path.join(venv_found, "Scripts", "activate.bat")}"\n'
-                else:
-                    activate_cmd = f'source "{os.path.join(venv_found, "bin", "activate")}"\n'
-                
-                self.shell_process.write(activate_cmd.encode('utf-8'))
-                print(f"🐍 Venv ativado: {os.path.basename(venv_found)}")
-                
-                # Confirmação após ativação
-                QTimer.singleShot(500, self._confirm_venv_activation)
-            else:
-                print("ℹ️ Nenhum venv encontrado")
-
-        except Exception as e:
-            print(f"❌ Erro ao ativar venv: {str(e)}")
-
-    def _confirm_venv_activation(self):
-        """Confirma que o venv foi ativado - VERSÃO CORRIGIDA"""
-        try:
-            if not hasattr(self, 'shell_process') or not self.shell_process:
-                return
-                
-            # CORREÇÃO: Use encode('utf-8') explicitamente
-            if os.name == 'nt':
-                confirm_msg = 'echo ✅ Projeto e Venv ativados!\n'.encode('utf-8')
-            else:
-                confirm_msg = 'echo "✅ Projeto e Venv ativados!"\n'.encode('utf-8')
-            
-            self.shell_process.write(confirm_msg)
-            print("✅ Confirmação de ativação enviada")
-            
-        except Exception as e:
-            print(f"❌ Erro na confirmação: {e}")
-
-    def handle_terminal_output(self):
-        """Processa saída do terminal - VERSÃO SIMPLIFICADA E CORRETA"""
-        try:
-            if (not hasattr(self, 'shell_process') or not self.shell_process or
-                    not hasattr(self, 'terminal_text') or not self.terminal_text):
-                return
-
-            data = self.shell_process.readAllStandardOutput().data().decode('utf-8', errors='ignore')
-            if data:
-                self.terminal_text.append_output(data)
-
-        except Exception as e:
-            print(f"❌ Erro em handle_terminal_output: {e}")
-
-    def handle_terminal_error(self):
-        """Processa erro do terminal - VERSÃO SIMPLIFICADA"""
-        try:
-            if (not hasattr(self, 'shell_process') or not self.shell_process or
-                    not hasattr(self, 'terminal_text') or not self.terminal_text):
-                return
-
-            data = self.shell_process.readAllStandardError().data().decode('utf-8', errors='ignore')
-            if data:
-                self.terminal_text.append_output(f"[ERRO] {data}")
-
-        except Exception as e:
-            print(f"❌ Erro em handle_terminal_error: {e}")
-
     
-
     def get_python_executable(self):
 
         """Obtém o executável Python"""
@@ -3172,25 +3255,77 @@ Thumbs.db
                 break
 
     def toggle_terminal(self):
-        """Mostra/esconde o dock do terminal e inicia shell se preciso"""
-        # Encontra o dock "Output"
-        dock_found = False
-        for dock in self.findChildren(QDockWidget):
-            if dock.windowTitle() == "Output":
-                dock.setVisible(not dock.isVisible())
-                dock_found = True
-                # Se mostrou e shell não rodando, inicia
-                if dock.isVisible() and not hasattr(self,
-                                                    'terminal_process_started') or not self.terminal_process_started:
-                    from PySide6.QtCore import QTimer
-                    QTimer.singleShot(300, self.start_shell)  # Delay para UI
-                break
-        if not dock_found:
-            print("⚠️ Dock 'Output' não encontrado – verifique setup")
-            # Fallback: mostra o dock se existir
-            if hasattr(self, 'terminal_dock'):
-                self.terminal_dock.setVisible(not self.terminal_dock.isVisible())
+        """Mostra/esconde o dock do terminal de forma inteligente"""
+        try:
+            dock_found = False
+        
+            # Procura pela dock de Output
+            for dock in self.findChildren(QDockWidget):
+                if dock.windowTitle() == "Output":
+                    is_visible = dock.isVisible()
+                    
+                    if not is_visible:
+                        # ✅ MOSTRAR: Torna visível e foca no terminal
+                        dock.show()
+                        dock.raise_()
+                        
+                        # Foca na aba do terminal
+                        if hasattr(self, 'output_tabs'):
+                            for i in range(self.output_tabs.count()):
+                                if self.output_tabs.tabText(i) == "💻 Terminal":
+                                    self.output_tabs.setCurrentIndex(i)
+                                    break
+                        
+                        self.debug_log("✅ Terminal mostrado e focado", "SUCCESS")
+                    else:
+                        # ✅ OCULTAR: Apenas esconde
+                        dock.hide()
+                        self.debug_log("✅ Terminal ocultado", "SUCCESS")
+                
+                    dock_found = True
+                    break
 
+            if not dock_found:
+                self.debug_log("❌ Dock 'Output' não encontrado", "ERROR")
+                # Tenta criar a dock se não existir
+                self.setup_bottom_dock()
+                    
+        except Exception as e:
+            self.debug_log(f"Erro ao alternar terminal: {e}", "ERROR")
+            
+            
+    def show_terminal_dock(self):
+        """Força a exibição da dock do terminal"""
+        try:
+            dock_found = False
+            
+            for dock in self.findChildren(QDockWidget):
+                if dock.windowTitle() == "Output":
+                    if not dock.isVisible():
+                        dock.show()
+                        dock.raise_()
+                    
+                    # Foca no terminal
+                    if hasattr(self, 'output_tabs'):
+                        for i in range(self.output_tabs.count()):
+                            if self.output_tabs.tabText(i) == "💻 Terminal":
+                                self.output_tabs.setCurrentIndex(i)
+                                break
+                    
+                    dock_found = True
+                    self.debug_log("✅ Dock do terminal mostrada e focada", "SUCCESS")
+                    break
+            
+            if not dock_found:
+                self.debug_log("❌ Não foi possível encontrar a dock do terminal", "ERROR")
+                return False
+            
+            return True
+        
+        except Exception as e:
+            self.debug_log(f"Erro ao mostrar dock do terminal: {e}", "ERROR")
+            return False            
+            
     def toggle_minimap(self):
         """Alterna visibilidade do NOVO minimap de forma inteligente"""
         if hasattr(self, 'minimap_widget'):
@@ -3215,9 +3350,53 @@ Thumbs.db
                         widget, EditorTab):
                     widget.editor.setFont(
                         font)
-
+                        
+                        
+                            
+    def setup_bottom_dock(self):
+        """Configura a dock inferior (Output) - SEM TERMINAL"""
+        try:
+            self.debug_log("🔄 Configurando dock inferior...", "INFO")
+            
+            # ✅ PRIMEIRO: Criar output_tabs se não existir
+            if not hasattr(self, 'output_tabs') or self.output_tabs is None:
+                self.output_tabs = QTabWidget()
+                self.output_tabs.setTabPosition(QTabWidget.North)
+                self.debug_log("✅ output_tabs criado", "SUCCESS")
+            
+            # ✅ SEGUNDO: Criar apenas as abas úteis (SEM TERMINAL)
+            self.setup_output_tab()
+            self.setup_debug_tab()
+            self.setup_errors_tab() 
+            self.setup_lint_tab()
+            
+            # ✅ TERCEIRO: NÃO criar a aba do terminal
+            # self.setup_terminal_tab()  # ✅ REMOVIDO
+            
+            # ✅ QUARTO: Criar a dock
+            bottom_dock = QDockWidget("Output", self)
+            bottom_dock.setFeatures(
+                QDockWidget.DockWidgetMovable | QDockWidget.DockWidgetFloatable)
+            bottom_dock.setMinimumHeight(0)
+            bottom_dock.setWidget(self.output_tabs)
+        
+        # ✅ QUINTO: Adicionar ao IDE
+            self.addDockWidget(Qt.BottomDockWidgetArea, bottom_dock)
+        
+        # ✅ MANTER VISÍVEL POR PADRÃO
+            bottom_dock.setVisible(True)  # ✅ ALTERADO: True em vez de False
+        
+            self.debug_log("✅ Dock inferior (Output) configurada SEM terminal", "SUCCESS")
+            return True
+            
+        except Exception as e:
+            self.debug_log(f"❌ Erro crítico ao configurar dock inferior: {e}", "ERROR")
+            import traceback
+            traceback.print_exc()
+            return False
+    
+        
     def set_light_theme(self):
-        """Define tema claro"""
         palette = QPalette()
         palette.setColor(QPalette.Window, QColor(240, 240, 240))
         palette.setColor(QPalette.WindowText, QColor(0, 0, 0))
@@ -3805,48 +3984,7 @@ Thumbs.db
         editor.setTextCursor(cursor)
         editor.setFocus()
         editor.centerCursor()  # Centraliza a linha na tela
-    def start_shell(self):
-        """Inicia shell - VERSÃO COMPLETAMENTE CORRIGIDA"""
-        try:
-            # Para processo anterior
-            if hasattr(self, 'shell_process') and self.shell_process:
-                if self.shell_process.state() == QProcess.Running:
-                    self.shell_process.terminate()
-                    self.shell_process.waitForFinished(1000)
-                self.shell_process = None
-
-            # Novo processo
-            self.shell_process = QProcess(self)
-            self.shell_process.readyReadStandardOutput.connect(self.handle_terminal_output)
-            self.shell_process.readyReadStandardError.connect(self.handle_terminal_error)
-
-            # Working directory
-            if hasattr(self, 'project_path') and self.project_path:
-                self.shell_process.setWorkingDirectory(self.project_path)
-
-            # Comando por OS - CORRIGIDO
-            if os.name == 'nt':
-                self.shell_process.start("cmd.exe", ["/K", "echo Py Dragon Terminal"])
-            else:
-                self.shell_process.start("/bin/bash", ["-i"])
-
-            # Espera iniciar
-            if not self.shell_process.waitForStarted(5000):
-                print("❌ Falha ao iniciar shell")
-                if hasattr(self, 'terminal_text'):
-                    self.terminal_text.setPlainText("❌ Falha ao iniciar terminal\n")
-                return
-
-            print("✅ Shell iniciado")
-            
-            # Configura terminal
-            if hasattr(self, 'terminal_text') and self.terminal_text:
-                self.terminal_text.set_shell_process(self.shell_process)
-
-        except Exception as e:
-            print(f"❌ Erro ao iniciar shell: {e}")
-            if hasattr(self, 'terminal_text'):
-                self.terminal_text.setPlainText(f"❌ Erro no terminal: {e}\n")
+    
 
     def stop_process(self, process):
 
@@ -3858,80 +3996,6 @@ Thumbs.db
                 process.kill()
                 process.waitForFinished(1000)
 
-    def terminal_key_press(self, event):
-        """Captura teclas no terminal: Enter envia comando, Backspace protege prompt"""
-        if not hasattr(self,
-                    'shell_process') or not self.shell_process or self.shell_process.state() != QProcess.Running:
-            event.ignore()  # Ignora se shell parado
-            return
-
-        cursor = self.terminal_text.textCursor()
-        pos = cursor.position()
-        if pos < self.terminal_text.input_start:
-            event.ignore()  # Não edita histórico
-            return
-
-        from PySide6.QtCore import Qt
-        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
-            # Envia comando ao shell
-            command = self.terminal_text.toPlainText()[self.terminal_text.input_start:].strip()
-            if command:  # Só se não vazio
-                self.shell_process.write((command + "\n").encode('utf-8'))
-                print(f"📤 Enviado: {command}")  # Log no console
-                # Nova linha para output
-                self.terminal_text.appendPlainText("")
-                self.terminal_text.input_start = self.terminal_text.textCursor().position()
-                # Adiciona novo prompt
-                prompt = self.get_prompt()
-                self.terminal_text.insertPlainText(prompt)
-                self.terminal_text.input_start += len(prompt)
-            event.accept()
-        elif event.key() == Qt.Key_Backspace and pos == self.terminal_text.input_start:
-            event.ignore()  # Protege prompt
-        else:
-            event.accept()  # Permite digitar
-
-    def get_prompt(self):
-        """Prompt simples por OS"""
-        import platform
-        system = platform.system()
-        if system == "Windows":
-            return "C:\\> "
-        elif system == "Darwin":
-            return "% "
-        else:
-            return "$ "
-
-
-
-    def handle_terminal_error(self):
-        """Processa erro do terminal"""
-        try:
-            if (not hasattr(self, 'shell_process') or not self.shell_process or
-                    not hasattr(self, 'terminal_text') or not self.terminal_text):
-                return
-
-            data = self.shell_process.readAllStandardError().data().decode('utf-8', errors='ignore')
-            if data:
-                # Adiciona marcação de erro
-                error_text = f"[ERRO] {data}"
-                current_text = self.terminal_text.toPlainText()
-
-                if current_text.endswith(">>> "):
-                    self.terminal_text.setPlainText(current_text[:-4] + error_text + ">>> ")
-                else:
-                    self.terminal_text.appendPlainText(error_text)
-
-        except Exception as e:
-            print(f"❌ Erro em handle_terminal_error: {e}")
-
-##############################################################
-    # Métodos da classe IDE para autocomplete
-    # NO IDE class - SUBSTITUIR O setup_autocomplete completo:
-
-    # ✅ ADICIONE ESTES MÉTODOS NA CLASSE IDE:
-
-    
 
     def trigger_unified_autocomplete(self):
         """Dispara autocomplete usando o sistema unificado"""
@@ -4599,32 +4663,34 @@ Thumbs.db
 
 
 
-    def _setup_initial_prompt(self):
-        """Configura prompt inicial no terminal - MÉTODO FALTANTE"""
-        if hasattr(self, 'terminal_text'):
-            try:
-                self.terminal_text.setPlainText("Py Dragon Terminal - Digite 'help' para comandos\n\n")
-                self.terminal_text.input_start = self.terminal_text.textCursor().position()
+    def append_output(self, text):
+        """Adiciona saída ao terminal com tratamento robusto de erros"""
+        try:
+            if not text:
+                return
                 
-                # Adiciona prompt inicial
-                prompt = self.get_prompt()
-                self.terminal_text.insertPlainText(prompt)
-                self.terminal_text.input_start += len(prompt)
-                
-            except Exception as e:
-                print(f"Erro no prompt inicial: {e}")
-
-    def append_output(self, data):
-        """Adiciona output ao terminal - MÉTODO FALTANTE"""
-        if hasattr(self, 'terminal_text') and self.terminal_text:
-            try:
-                cursor = self.terminal_text.textCursor()
+            cursor = self.textCursor()
+            cursor.movePosition(QTextCursor.End)
+            
+            # Filtra códigos ANSI e caracteres problemáticos
+            cleaned_text = self._filter_ansi_codes(str(text))
+            
+            # Garante que estamos na posição correta
+            if cursor.position() < self.input_start:
                 cursor.movePosition(QTextCursor.End)
-                cursor.insertText(data)
-                self.terminal_text.setTextCursor(cursor)
-                self.terminal_text.ensureCursorVisible()
-            except Exception as e:
-                print(f"Erro ao adicionar output: {e}")
+            
+            cursor.insertText(cleaned_text)
+            self.setTextCursor(cursor)
+            self.ensureCursorVisible()
+            
+        except Exception as e:
+            print(f"Erro ao adicionar output: {e}")
+            # Tenta uma abordagem mais simples em caso de erro
+            try:
+                self.moveCursor(QTextCursor.End)
+                self.insertPlainText(str(text))
+            except:
+                pass
     def test_plugins_system(self):
         """Testa o sistema de plugins"""
         try:

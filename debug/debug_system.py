@@ -1,257 +1,220 @@
-from PySide6.QtCore import QThread, Signal
-import subprocess
+import os
+import sys
+import re
+from PySide6.QtWidgets import QPlainTextEdit
+from PySide6.QtCore import QThread, Signal, Qt, QProcess 
+from PySide6.QtGui import QFont, QTextCursor, QKeyEvent
 
+class DebugTerminal(QPlainTextEdit):
+    """Terminal especializado para debug - versão completa"""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.debug_worker = None
+        self.input_start = 0
+        
+        # Comandos específicos do debug
+        self.debug_commands = {
+            'n': 'next', 's': 'step', 'c': 'continue', 'q': 'quit',
+            'l': 'list', 'p': 'print', 'pp': 'pprint', 'w': 'where',
+            'b': 'break', 'cl': 'clear', 'r': 'return', 'h': 'help'
+        }
+        
+        self.setup_debug_terminal()
+
+    def setup_debug_terminal(self):
+        """Configura o terminal de debug"""
+        self.setFont(QFont("Monospace", 10))
+        self.setStyleSheet("""
+            QPlainTextEdit {
+                background-color: #1e1e1e;
+                color: #ce9178;
+                border: none;
+                font-family: 'Consolas', monospace;
+                font-size: 11px;
+            }
+        """)
+        self._add_prompt()
+
+    def _add_prompt(self):
+        """Adiciona prompt de debug"""
+        prompt = "(Pdb) "
+        self.insertPlainText(prompt)
+        self._input_start = len(self.toPlainText())
+        self._move_cursor_to_end()
+
+    def _move_cursor_to_end(self):
+        """Move cursor para o final"""
+        cursor = self.textCursor()
+        cursor.movePosition(QTextCursor.End)
+        self.setTextCursor(cursor)
+
+    def append_output(self, text):
+        """Adiciona saída ao terminal"""
+        try:
+            # Limpa códigos ANSI básicos
+            cleaned_text = re.sub(r'\x1b\[[0-9;]*[mK]', '', text)
+            
+            self._move_cursor_to_end()
+            self.insertPlainText(cleaned_text)
+            
+            # Se não terminar com newline, adiciona
+            if not cleaned_text.endswith('\n'):
+                self.insertPlainText('\n')
+                
+            self._add_prompt()
+            
+        except Exception as e:
+            print(f"Erro em append_output: {e}")
+
+    def _get_current_input(self):
+        """Obtém comando atual"""
+        full_text = self.toPlainText()
+        return full_text[self._input_start:].strip()
+
+    def keyPressEvent(self, event: QKeyEvent):
+        """Handle de teclas para debug"""
+        if event.key() in (Qt.Key_Return, Qt.Key_Enter):
+            self._execute_debug_command()
+            event.accept()
+            return
+            
+        elif event.key() == Qt.Key_Backspace:
+            cursor = self.textCursor()
+            if cursor.position() <= self._input_start:
+                event.accept()
+                return
+            else:
+                super().keyPressEvent(event)
+                return
+                
+        elif event.key() == Qt.Key_C and event.modifiers() == Qt.ControlModifier:
+            self.stop_debug()
+            event.accept()
+            return
+            
+        else:
+            super().keyPressEvent(event)
+
+    def _execute_debug_command(self):
+        """Executa comando de debug"""
+        try:
+            command = self._get_current_input()
+            
+            if not command:
+                self.insertPlainText("\n")
+                self._add_prompt()
+                return
+                
+            if not self.debug_worker:
+                self.insertPlainText("\n❌ Debug não está ativo\n")
+                self._add_prompt()
+                return
+
+            # Processa comando abreviado
+            clean_command = command.strip()
+            if clean_command in self.debug_commands:
+                full_command = self.debug_commands[clean_command]
+                self.insertPlainText(f"\nExecutando: {full_command}\n")
+                self.debug_worker.send_command(full_command)
+            else:
+                self.insertPlainText(f"\nExecutando: {clean_command}\n")
+                self.debug_worker.send_command(clean_command)
+
+        except Exception as e:
+            self.insertPlainText(f"\n❌ Erro: {e}\n")
+            self._add_prompt()
+
+    def start_debug(self, python_exec, file_path, project_path):
+        """Inicia sessão de debug"""
+        self.clear()
+        self.insertPlainText(f"🐛 Iniciando debug: {os.path.basename(file_path)}\n")
+        self.insertPlainText("Comandos: n(next), s(step), c(continue), q(quit), l(list), p(print), b(break)\n")
+        self.insertPlainText("-" * 50 + "\n")
+
+        self.debug_worker = DebugWorker(python_exec, file_path, project_path)
+        self.debug_worker.output_received.connect(self.append_output)
+        self.debug_worker.finished.connect(self.on_debug_finished)
+        self.debug_worker.start()
+
+    def on_debug_finished(self, exit_code):
+        """Callback quando debug termina"""
+        self.insertPlainText(f"\n🔚 Sessão de debug finalizada (código: {exit_code})\n")
+        self.debug_worker = None
+        self._add_prompt()
+
+    def stop_debug(self):
+        """Para a sessão de debug"""
+        if self.debug_worker:
+            self.debug_worker.stop()
+            self.insertPlainText("\n⏹️ Debug interrompido\n")
+            self.debug_worker = None
+        self._add_prompt()
 
 
 class DebugWorker(QThread):
-    """Worker para execução de debug em thread separada"""
+    """Thread para executar debugger"""
     output_received = Signal(str)
     finished = Signal(int)
-    error_occurred = Signal(str)
 
     def __init__(self, python_exec, file_path, project_path):
         super().__init__()
         self.python_exec = python_exec
         self.file_path = file_path
         self.project_path = project_path
-        self.process = None
+        self._process = None
         self._is_running = True
-        self._mutex = threading.Lock()
-        self._command_queue = Queue()
-
-    def stop(self):
-        """Para a execução do debug de forma segura"""
-        with self._mutex:
-            self._is_running = False
-            
-        if self.process:
-            try:
-                self.process.terminate()
-                if not self.process.waitForFinished(1000):
-                    self.process.kill()
-            except Exception as e:
-                print(f"Erro ao parar processo: {e}")
-                
-        self.quit()
-        self.wait(2000)
 
     def run(self):
-        """Executa o debug em thread separada"""
         try:
-            with self._mutex:
-                if not self._is_running:
-                    return
-                    
-            self.process = QProcess()
-            self.process.readyReadStandardOutput.connect(self.handle_stdout)
-            self.process.readyReadStandardError.connect(self.handle_stderr)
-            self.process.finished.connect(self.on_finished)
-            self.process.errorOccurred.connect(self.on_error)
+            # Inicia processo de debug
+            self._process = QProcess()
+            self._process.readyReadStandardOutput.connect(self._handle_output)
+            self._process.readyReadStandardError.connect(self._handle_error)
+            self._process.finished.connect(self._handle_finished)
 
-            # Comando para debug interativo
+            # Comando para iniciar debug
             cmd = [self.python_exec, "-m", "pdb", self.file_path]
-
-            # Define working directory
-            working_dir = self.project_path or os.path.dirname(self.file_path)
-            self.process.setWorkingDirectory(working_dir)
-
-            # Define variáveis de ambiente se necessário
-            env = QProcessEnvironment.systemEnvironment()
-            self.process.setProcessEnvironment(env)
-
-            self.output_received.emit(f"🚀 Iniciando debug: {os.path.basename(self.file_path)}")
-            self.output_received.emit(f"📁 Diretório: {working_dir}")
-            self.output_received.emit(f"🐍 Python: {self.python_exec}")
-            self.output_received.emit("-" * 50)
-
-            self.process.start(cmd[0], cmd[1:])
-
-            # Aguarda o processo iniciar
-            if not self.process.waitForStarted(5000):
-                self.error_occurred.emit("❌ Falha ao iniciar processo de debug")
+            self._process.start(cmd[0], cmd[1:])
+            
+            if not self._process.waitForStarted(5000):
+                self.output_received.emit("❌ Falha ao iniciar debugger\n")
                 return
 
-            # Loop principal para processar comandos
-            while True:
-                with self._mutex:
-                    if not self._is_running:
-                        break
-                    if self.process.state() != QProcess.Running:
-                        break
-
-                # Processa comandos da fila
-                try:
-                    command = self._command_queue.get_nowait()
-                    if command:
-                        self.process.write(f"{command}\n".encode('utf-8'))
-                except Empty:
-                    pass
-
-                self.msleep(50)
+            # Mantém a thread rodando
+            while self._is_running and self._process.state() == QProcess.Running:
+                self.msleep(100)
 
         except Exception as e:
-            error_msg = f"❌ Erro no debug: {str(e)}"
-            self.error_occurred.emit(error_msg)
-            self.output_received.emit(error_msg)
-
-    def handle_stdout(self):
-        """Processa saída padrão"""
-        with self._mutex:
-            if not self._is_running:
-                return
-                
-        try:
-            data = self.process.readAllStandardOutput().data().decode('utf-8', errors='ignore')
-            if data.strip():
-                self.output_received.emit(data)
-        except Exception as e:
-            print(f"Erro ao processar stdout: {e}")
-
-    def handle_stderr(self):
-        """Processa erro padrão"""
-        with self._mutex:
-            if not self._is_running:
-                return
-                
-        try:
-            data = self.process.readAllStandardError().data().decode('utf-8', errors='ignore')
-            if data.strip():
-                # Marca como erro
-                error_text = f"[ERRO] {data}"
-                self.output_received.emit(error_text)
-        except Exception as e:
-            print(f"Erro ao processar stderr: {e}")
-
-    def on_finished(self, exit_code, exit_status):
-        """Processa término do processo"""
-        with self._mutex:
-            if self._is_running:
-                self.output_received.emit(f"\n🔚 Processo de debug finalizado (código: {exit_code})")
-                self.finished.emit(exit_code)
-
-    def on_error(self, error):
-        """Processa erro do processo"""
-        error_msg = f"❌ Erro no processo: {error.name()}"
-        self.error_occurred.emit(error_msg)
-        self.output_received.emit(error_msg)
+            self.output_received.emit(f"❌ Erro no debug: {e}\n")
 
     def send_command(self, command):
-        """Envia comando para o processo de debug"""
-        with self._mutex:
-            if not self._is_running or not self.process or self.process.state() != QProcess.Running:
-                return False
-                
-        try:
-            # Adiciona quebra de linha se necessário
-            if not command.endswith('\n'):
-                command += '\n'
-                
-            self._command_queue.put(command)
-            return True
-        except Exception as e:
-            print(f"Erro ao enviar comando: {e}")
-            return False
-
-    def get_state(self):
-        """Retorna o estado atual do worker"""
-        with self._mutex:
-            if not self._is_running:
-                return "stopped"
-            if not self.process:
-                return "not_started"
-            return "running" if self.process.state() == QProcess.Running else "finished"
-
-
-
-class LinterWorker(QThread):
-    """Worker para execução de linter em background"""
-    finished = Signal(dict, list)
-    
-    def __init__(self, file_path, python_exec, project_path):
-        super().__init__()
-        self.file_path = file_path
-        self.python_exec = python_exec
-        self.project_path = project_path
-        self._is_running = True
-        self._mutex = threading.Lock()
+        """Envia comando para o debugger"""
+        if self._process and self._process.state() == QProcess.Running:
+            self._process.write(f"{command}\n".encode())
 
     def stop(self):
-        """Para a thread de forma segura"""
-        with self._mutex:
-            self._is_running = False
-        self.quit()
-        self.wait(2000)
+        """Para o debugger"""
+        self._is_running = False
+        if self._process:
+            self._process.terminate()
+            if not self._process.waitForFinished(1000):
+                self._process.kill()
 
-    def run(self):
-        """Executa análise de linting em thread separada"""
-        if not self._is_running or not self.file_path:
-            return
+    def _handle_output(self):
+        """Processa saída padrão"""
+        if self._process:
+            data = self._process.readAllStandardOutput().data().decode('utf-8', errors='ignore')
+            if data.strip():
+                self.output_received.emit(data)
 
-        errors = {}
-        lint_messages = []
+    def _handle_error(self):
+        """Processa saída de erro"""
+        if self._process:
+            data = self._process.readAllStandardError().data().decode('utf-8', errors='ignore')
+            if data.strip():
+                self.output_received.emit(f"❌ {data}")
 
-        try:
-            # Tenta pylint primeiro com enables corrigidos
-            pylint_cmd = [
-                self.python_exec, '-m', 'pylint',
-                '--output-format=json',
-                '--reports=n',
-                '--disable=all',
-                '--enable=E,W,fatal',
-                self.file_path
-            ]
-
-            cwd = self.project_path if self.project_path else os.path.dirname(self.file_path)
-            result = subprocess.run(
-                pylint_cmd,
-                capture_output=True,
-                text=True,
-                cwd=cwd,
-                encoding='utf-8',
-                timeout=5
-            )
-
-            # Verifica se deve continuar
-            with self._mutex:
-                if not self._is_running:
-                    return
-
-            if result.returncode in [0, 1, 2, 4, 8, 16, 32] and result.stdout.strip():
-                try:
-                    lines = result.stdout.strip().split('\n')
-                    for line in lines:
-                        # Verifica se deve continuar a cada linha
-                        with self._mutex:
-                            if not self._is_running:
-                                return
-                                
-                        if line.strip():
-                            try:
-                                issue = json.loads(line.strip())
-                                if 'line' in issue and issue['line'] > 0:
-                                    line_num = issue['line'] - 1
-                                    msg = issue.get('message', 'No message')
-                                    symbol = issue.get('symbol', 'unknown')
-                                    msg_type = issue.get('type', 'warning')
-                                    error_type = 'error' if msg_type == 'error' else 'warning'
-
-                                    if line_num not in errors:
-                                        errors[line_num] = []
-                                    errors[line_num].append({
-                                        'type': error_type,
-                                        'msg': msg,
-                                        'symbol': symbol
-                                    })
-                                    lint_messages.append(f"Line {issue['line']}: {msg} ({symbol})")
-                            except json.JSONDecodeError:
-                                continue
-                except json.JSONDecodeError:
-                    pass
-
-        except (subprocess.TimeoutExpired, FileNotFoundError, Exception) as e:
-            print(f"Linter error: {e}")
-
-        # Verifica final antes de emitir
-        with self._mutex:
-            if self._is_running:
-                self.finished.emit(errors, lint_messages)
+    def _handle_finished(self, exit_code):
+        """Callback quando processo termina"""
+        self.finished.emit(exit_code)
