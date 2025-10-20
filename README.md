@@ -1,74 +1,97 @@
-# Py-Dragon-IDE
 
-[![Python 3.9](https://img.shields.io/badge/Python-3.9-green.svg)](https://www.python.org/downloads/release/python-390/)
+---
 
-## Descrição
+<h1 align="center">🐉 Py-Dragon-IDE</h1>
 
-O **Py-Dragon-IDE** é um ambiente de desenvolvimento integrado (IDE) open-source projetado para competir diretamente com o Visual Studio Code (VS Code), mas otimizado para plataformas **Linux** e **Windows**. Nosso objetivo é criar uma ferramenta leve, poderosa e altamente personalizável, inspirada em editores como PyCharm e sistemas como CLIPS (para lógica de regras), com suporte expandido para linguagens como Java, C, C++ e C#. Além disso, planejamos incluir um **sistema de design visual de interfaces gráficas semelhante ao Windows Forms**, permitindo o desenvolvimento de aplicativos desktop com drag-and-drop intuitivo, integrado ao editor de código.
+<p align="center">
+  <b>IDE open-source, leve, poderosa e altamente personalizável</b><br>
+  Inspirada em VS Code e PyCharm, com suporte inicial a Python e linguagens web.
+</p>
 
-Atualmente, o projeto está em fase inicial de desenvolvimento e suporta **Python** como linguagem principal, além de linguagens web como **HTML, CSS e JavaScript**. Planejamos expandir rapidamente para incluir C, C++, C# e o builder de forms visual, visando uma cobertura ampla para desenvolvimento multiplataforma.
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.9%2B-blue?style=for-the-badge&logo=python" alt="Python">
+  <img src="https://img.shields.io/badge/Plataforma-Linux%20|%20Windows-blueviolet?style=for-the-badge" alt="Plataforma">
+  <img src="https://img.shields.io/badge/Status-Em%20Desenvolvimento-yellow?style=for-the-badge" alt="Status">
+  <img src="https://img.shields.io/badge/Licença-MIT-green?style=for-the-badge" alt="License">
+  <img src="https://img.shields.io/github/downloads/CodexMelo/Py-Dragon-IDE/total?style=for-the-badge" alt="Downloads">
+</p>
 
-## Recursos Atuais
+---
 
-- **Editor de Código Inteligente**: Sintaxe highlight, autocompletar e linting para Python e linguagens web.
-- **Suporte Multiplataforma**: Funciona nativamente em Linux e Windows.
-- **Integração com Terminal**: Execução de scripts Python diretamente no IDE.
-- **Extensibilidade**: Baseada em plugins para adicionar suporte a novas linguagens (ex: C, C++ e C# em breve).
-- **Interface Minimalista**: Inspirada no VS Code, mas com foco em performance para máquinas de baixa configuração.
+## 🚀 Sobre o Projeto
 
-## Recursos Planejados
+**Py-Dragon-IDE** é uma IDE **open-source**, leve e moderna, focada em **Python** e linguagens web (**HTML, CSS, JS**), com suporte futuro a **Java, C, C++ e C#**.  
 
-- **Designer Visual de Forms**: Um sistema semelhante ao Windows Forms para criação de GUIs desktop em Python (usando bibliotecas como Tkinter ou PyQt). Inclui drag-and-drop de componentes, preview em tempo real e geração automática de código.
-- **Integração com Bibliotecas GUI**: Suporte nativo para Tkinter, PyQt e Kivy, com templates prontos para apps multiplataforma.
+Inspirada em editores modernos e sistemas de regras como CLIPS, o projeto combina:
 
-## Requisitos
+- **Leveza e performance**, ideal para máquinas de baixa configuração  
+- **Extensibilidade via plugins** para novas linguagens e ferramentas  
+- **Designer Visual de Forms**, para criar GUIs desktop com drag-and-drop intuitivo  
 
-- **Python**: Versão 3.9 ou superior.
-- **Sistema Operacional**: Linux (distribuições baseadas em Debian/Ubuntu recomendadas) ou Windows 10/11.
-- **Dependências**: Instaladas via `pip` (veja abaixo).
+> Objetivo: fornecer uma IDE completa e personalizável, que permita desenvolvimento multiplataforma eficiente.
 
-## Instalação
+---
 
-1. Clone o repositório:
-   ```
-   git clone https://github.com/CodexMelo/Py-Dragon-IDE.git
-   cd Py-Dragon-IDE
-   ```
+## ✨ Recursos Atuais
 
-2. Crie um ambiente virtual (recomendado):
-   ```
-   python -m venv venv
-   source venv/bin/activate  # No Linux
-   # Ou no Windows: venv\Scripts\activate
-   ```
+- 💻 **Editor de Código Inteligente:** Sintaxe highlight, autocompletar e linting  
+- 🖥 **Suporte Multiplataforma:** Linux e Windows  
+- 🧰 **Terminal Integrado:** Execute scripts Python diretamente  
+- 🔧 **Extensibilidade via Plugins:** Adicione suporte a novas linguagens (C, C++, C#)  
+- 🌈 **Interface Minimalista:** Inspirada no VS Code, com foco em performance  
 
-3. Instale as dependências:
-   ```
-   pip install -r requirements.txt
-   ```
+---
 
-4. Execute o IDE:
-   ```
-   python main.py
-   ```
+## ⚡ Recursos Planejados
 
-> **Nota**: O arquivo `requirements.txt` será adicionado em breve com as bibliotecas iniciais (ex: Tkinter para GUI, Pygments para highlight). Para o designer de forms, incluiremos suporte a `tkinter` e `pyqt5` nas próximas atualizações.
+- 🖌 **Designer Visual de Forms:** Drag-and-drop, preview em tempo real, geração automática de código  
+- 📦 **Integração GUI:** Tkinter, PyQt, Kivy com templates multiplataforma  
+- 🧑‍💻 **Suporte a Linguagens Compiladas:** C, C++, C#  
+- 🐞 **Depurador Interno:** Python e futuras linguagens  
+- 🌐 **Loja de Plugins Online:** Instalação e gerenciamento direto de extensões  
 
-## Uso
+---
 
-- Abra o IDE e crie um novo projeto Python ou web.
-- Use `Ctrl + S` para salvar, `F5` para executar (Python).
-- Para linguagens web, use o visualizador integrado para preview de HTML/CSS/JS.
-- **Futuro**: Acesse o Designer de Forms via menu "Ferramentas" para criar interfaces visuais.
+## 🛠️ Requisitos
 
-Exemplo de script Python simples:
+- **Python:** 3.9 ou superior  
+- **SO:** Linux (Debian/Ubuntu recomendado) ou Windows 10/11  
+- **Dependências:** via `pip` (veja `requirements.txt`)  
+
+---
+
+## ⚙️ Instalação
+
+```bash
+git clone -b PY-IDE https://github.com/CodexMelo/Py-Dragon-IDE.git
+cd Py-Dragon-IDE
+
+python -m venv venv
+source venv/bin/activate   # Linux
+# Windows: venv\Scripts\activate
+
+pip install -r requirements.txt
+python main.py
+
+
+---
+
+## 📝 Uso
+
+* Crie projetos Python ou web
+* **Ctrl + S:** salvar | **F5:** executar Python
+* Visualizador integrado para HTML/CSS/JS
+* Futuro: Designer de Forms via menu "Ferramentas"
+
+### Exemplo Python
+
 ```python
 print("Olá, mundo do Py-Dragon-IDE!")
 ```
 
-Exemplo conceitual de uso do Designer de Forms (geração automática de código):
+### Exemplo Designer de Forms (conceitual)
+
 ```python
-# Código gerado pelo Designer
 import tkinter as tk
 
 root = tk.Tk()
@@ -83,47 +106,99 @@ button.pack()
 root.mainloop()
 ```
 
-## Linguagens Suportadas
+---
 
-| Linguagem | Suporte Atual | Status Futuro |
-|-----------|---------------|---------------|
-| Python   | ✅ Completo  | -            |
-| HTML/CSS | ✅ Básico    | Avançado     |
-| JavaScript | ✅ Básico  | Avançado     |
-| Java     | ❌ Não      | Planejado    |
-| CLIPS    | ❌ Não      | Planejado    |
-| C        | ❌ Não      | Planejado    |
-| C++      | ❌ Não      | Planejado   |
-| C#       | ❌ Não      | Planejado   |
+## 💻 Linguagens Suportadas
 
-## Roadmap
+| Linguagem  | Suporte Atual | Status Futuro |
+| ---------- | ------------- | ------------- |
+| Python     | ✅ Completo    | -             |
+| HTML/CSS   | ✅ Básico      | Avançado      |
+| JavaScript | ✅ Básico      | Avançado      |
+| Java       | ❌ Não         | Planejado     |
+| CLIPS      | ❌ Não         | Planejado     |
+| C          | ❌ Não         | Planejado     |
+| C++        | ❌ Não         | Planejado     |
+| C#         | ❌ Não         | Planejado     |
 
-- **Versão 0.1**: Suporte básico a Python e web (em progresso).
-- **Versão 0.2**: Integração de debugger e suporte a Java.
-- **Versão 0.3**: Adição de suporte a C e C++, com compilação integrada via GCC/Clang; introdução inicial do Designer de Forms para Python.
-- **Versão 0.4**: Suporte a C# com integração ao .NET para Windows/Linux; expansão do Designer de Forms com suporte a PyQt.
-- **Versão 1.0**: Competição total com VS Code – temas, extensões, Git integration e suporte completo a CLIPS; Designer de Forms maduro, compatível com Windows Forms.
-- **Futuro**: Expansão para mais linguagens e ferramentas de depuração avançadas para C/C++/C#; exportação de forms para multiplataforma (Linux/Windows).
+---
 
-## Contribuições
+## 🧭 Roadmap Visual
 
-Contribuições são bem-vindas! Siga estes passos:
-1. Fork o repositório.
-2. Crie uma branch para sua feature (`git checkout -b feature/nova-funcionalidade`).
-3. Commit suas mudanças (`git commit -m 'Adiciona nova funcionalidade'`).
-4. Push para a branch (`git push origin feature/nova-funcionalidade`).
-5. Abra um Pull Request.
+| Versão | Status          | Principais Funcionalidades                                                 |
+| ------ | --------------- | -------------------------------------------------------------------------- |
+| 0.1    | 🔄 Em Progresso | Suporte básico a Python e web                                              |
+| 0.2    | ⏳ Planejado     | Integração de debugger e suporte a Java                                    |
+| 0.3    | ⏳ Planejado     | Suporte a C/C++, compilação via GCC/Clang, início Designer de Forms        |
+| 0.4    | ⏳ Planejado     | Suporte a C# e expansão Designer de Forms (PyQt)                           |
+| 1.0    | ⭐ Futuro        | Competição com VS Code, suporte completo a CLIPS, Designer de Forms maduro |
 
-Por favor, leia o [Código de Conduta](CODE_OF_CONDUCT.md) antes de contribuir. Contribuições para o Designer de Forms (semelhante ao Windows Forms) ou suporte inicial a C, C++ ou C# são especialmente incentivadas!
+---
 
-## Licença
+## 🎨 Screenshots / GIFs
 
-Este projeto está sob a licença MIT. Veja o arquivo [LICENSE](LICENSE) para detalhes.
+<p align="center">
+  <img src="docs/screenshot_editor.png" width="600" alt="Editor Python">
+</p>
 
-## Contato
+<p align="center">
+  <img src="docs/screenshot_autocomplete.gif" width="600" alt="Autocompletar em ação">
+</p>
 
-- **Autor**: CodexMelo
-- **Issues**: [Abra uma issue](https://github.com/CodexMelo/Py-Dragon-IDE/issues)
-- **Discussões**: Participe das discussões no repositório.
+<p align="center">
+  <img src="docs/screenshot_designer.png" width="600" alt="Designer de Forms (conceitual)">
+</p>
 
-Obrigado por apoiar o Py-Dragon-IDE! 🐉✨
+> Substitua os arquivos `docs/*.png/gif` com imagens reais do projeto.
+
+---
+
+## 🤝 Contribuições
+
+1. Fork o repositório
+2. Crie uma branch para sua feature
+
+```bash
+git checkout -b feature/nova-funcionalidade
+```
+
+3. Commit suas alterações
+
+```bash
+git commit -m "Adiciona nova funcionalidade"
+```
+
+4. Push para a branch
+
+```bash
+git push origin feature/nova-funcionalidade
+```
+
+5. Abra um Pull Request
+
+> Contribuições para Designer de Forms ou suporte a C/C++/C# são altamente incentivadas.
+
+---
+
+## 📜 Licença
+
+MIT License. Consulte `LICENSE`.
+
+---
+
+## 📬 Contato
+
+* **Autor:** CodexMelo
+* **Issues:** [Abra uma issue](https://github.com/CodexMelo/Py-Dragon-IDE/issues)
+* **Discussões:** Participe das discussões no repositório
+
+<p align="center">
+🐉 <b>Py-Dragon-IDE</b> — feito com dedicação, propósito e Python.
+</p>
+```
+
+---
+
+Se você quiser, posso **gerar uma versão final do README já com GIFs e screenshots reais simulados**, prontos para colocar na pasta `docs/`, deixando o projeto **visualmente profissional** no GitHub.
+
+Quer que eu faça isso também?
