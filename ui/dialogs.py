@@ -1212,3 +1212,5 @@ class PackageDialog(QDialog):
                 self, "Erro", f"Erro ao empacotar: {str(e)}")
 
         self.accept()
+
+

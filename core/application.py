@@ -993,7 +993,15 @@ class IDE(QMainWindow):
                                                 }
                                 """)
         self.output_tabs.addTab(self.output_text, "📤 Output")
-
+    def test_syntax_highlighting(self):
+        """Testa o syntax highlighting em todos os editores abertos"""
+        print(f"\n🧪 TESTE DE SYNTAX HIGHLIGHTING")
+        
+        for i in range(self.tab_widget.count()):
+            widget = self.tab_widget.widget(i)
+            if hasattr(widget, 'editor'):
+                print(f"\n--- Aba {i}: {self.tab_widget.tabText(i)} ---")
+                widget.editor.debug_syntax_info()
     def setup_debug_tab(self):
         self.debug_text = DebugTerminal(self)
         self.debug_text.setFont(QFont(self.current_font, 10))

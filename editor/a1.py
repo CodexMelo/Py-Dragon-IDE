@@ -17,7 +17,6 @@ from editor.line_numbers import LineNumberArea
 from editor.code_folding import CodeFoldingArea
 from syntax.highlighters import HighlighterFactory
 from syntax.syntax_manager import SyntaxHighlightingManager
-from editor.CompletPronto import completer, quick_template, quick_snippet, get_available_templates, get_available_snippets
 
 # ===== SISTEMA DE SUGESTÕES INTELIGENTE CORRIGIDO =====
 class SmartSuggestionWidget(QWidget):
@@ -101,9 +100,7 @@ class SmartSuggestionWidget(QWidget):
             'builtin': '#D7BA7D',
             'file': '#CE9178',
             'folder': '#569CD6',
-            'image': '#C586C0',
-            'template': '#4EC9B0',
-            'snippet': '#D7BA7D'
+            'image': '#C586C0'
         }
         
         self.layout.addWidget(self.list_widget)
@@ -187,10 +184,8 @@ class SmartSuggestionWidget(QWidget):
                 break
 
     def _categorize_suggestions(self, suggestions):
-        """Categoriza sugestões por tipo - INCLUI TEMPLATES"""
+        """Categoriza sugestões por tipo"""
         categories = {
-            'templates': [],
-            'snippets': [],
             'arquivos': [],
             'pastas': [],
             'funções': [],
@@ -203,91 +198,44 @@ class SmartSuggestionWidget(QWidget):
         }
         
         for suggestion in suggestions:
-            # Detectar templates e snippets primeiro
-            if suggestion.startswith('template:'):
-                template_name = suggestion.replace('template:', '')
-                categories['templates'].append((suggestion, 'template'))
-                continue
-            elif suggestion.startswith('snippet:'):
-                snippet_name = suggestion.replace('snippet:', '')
-                categories['snippets'].append((suggestion, 'snippet'))
-                continue
-                
-            # Detectar se é arquivo (tem extensão e não é função/método)
+            # Detectar se é arquivo
             if '.' in suggestion and not suggestion.endswith('()'):
                 ext = suggestion.split('.')[-1].lower()
-                # Lista de extensões de arquivo comuns
-                file_extensions = ['py', 'js', 'html', 'css', 'json', 'txt', 'md', 'xml', 
-                                 'yml', 'yaml', 'jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 
-                                 'ico', 'pdf', 'doc', 'docx', 'csv', 'sql', 'java', 'cpp', 
-                                 'c', 'h', 'php', 'rb', 'go', 'rs', 'swift', 'kt', 'ts']
-                
-                if ext in file_extensions:
-                    # Verificar se não é um módulo Python (arquivo .py sem path)
-                    if ext == 'py' and '/' not in suggestion and '\\' not in suggestion:
-                        categories['módulos'].append((suggestion, 'module'))
-                    else:
-                        # Detectar tipo específico do arquivo
-                        if ext in ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'ico']:
-                            categories['arquivos'].append((suggestion, 'image'))
-                        else:
-                            categories['arquivos'].append((suggestion, 'file'))
+                if ext in ['py', 'js', 'html', 'css', 'json', 'txt', 'md', 'xml', 'yml', 'yaml', 
+                          'jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'ico', 'pdf', 'doc', 'docx']:
+                    categories['arquivos'].append((suggestion, 'file'))
                     continue
             
-            # Detectar se é pasta (não tem extensão, não termina com parênteses, não tem caracteres especiais de código)
-            if (not '.' in suggestion and 
-                not suggestion.endswith('()') and 
-                not any(char in suggestion for char in '()[]{}:') and
-                not ' ' in suggestion and
-                not suggestion.lower() in ['def', 'class', 'if', 'else', 'for', 'while', 'import', 'from']):
+            # Detectar se é pasta (não tem extensão e não termina com parênteses)
+            if not '.' in suggestion and not suggestion.endswith('()') and not any(char in suggestion for char in '()[]{}'):
                 categories['pastas'].append((suggestion, 'folder'))
                 continue
                 
             clean_suggestion = suggestion.replace('()', '')
             
-            # Detectar funções e métodos
             if suggestion.endswith('()'):
                 if '.' in clean_suggestion:
-                    # Método: classe.metodo()
                     categories['métodos'].append((suggestion, 'method'))
                 else:
-                    # Função: funcao()
                     categories['funções'].append((suggestion, 'function'))
-            
-            # Detectar classes (começam com letra maiúscula e não são pastas/arquivos)
-            elif suggestion and suggestion[0].isupper() and not '.' in suggestion:
+            elif suggestion[0].isupper():
                 categories['classes'].append((suggestion, 'class'))
-            
-            # Detectar palavras-chave
             elif any(keyword in suggestion.lower() for keyword in 
-                    ['import ', 'from ', 'def ', 'class ', 'if ', 'else ', 'for ', 'while ', 
-                     'return ', 'try:', 'except ', 'finally ', 'with ', 'as ', 'lambda ']):
+                    ['import', 'from', 'def', 'class', 'if', 'else', 'for', 'while']):
                 categories['palavras-chave'].append((suggestion, 'keyword'))
-            
-            # Detectar módulos (contém ponto mas não é arquivo)
-            elif '.' in suggestion and not any(ext in suggestion for ext in file_extensions):
+            elif '.' in suggestion:
                 categories['módulos'].append((suggestion, 'module'))
-            
-            # Detectar built-ins
-            elif any(builtin == suggestion.lower() for builtin in 
-                    ['print', 'len', 'str', 'list', 'dict', 'range', 'type', 'input', 
-                     'open', 'sum', 'max', 'min', 'abs', 'all', 'any']):
+            elif any(builtin in suggestion.lower() for builtin in 
+                    ['print', 'len', 'str', 'list', 'dict', 'range']):
                 categories['built-ins'].append((suggestion, 'builtin'))
-            
-            # Variáveis (padrão snake_case ou camelCase)
-            elif (re.match(r'^[a-z_][a-z0-9_]*$', suggestion) or 
-                  re.match(r'^[a-z][a-z0-9]*([A-Z][a-z0-9]*)*$', suggestion)):
-                categories['variáveis'].append((suggestion, 'variable'))
-            
-            # Fallback - adicionar como variável
             else:
                 categories['variáveis'].append((suggestion, 'variable'))
-                    
+                
         # Remover categorias vazias
         return {k: v for k, v in categories.items() if v}
     
     def _format_suggestion(self, text, item_type):
-        """Formata o texto da sugestão baseado no tipo - INCLUI TEMPLATES"""
+        """Formata o texto da sugestão baseado no tipo"""
         icons = {
             'function': 'ƒ',
             'class': 'Ⓒ', 
@@ -299,23 +247,11 @@ class SmartSuggestionWidget(QWidget):
             'builtin': 'Ⓑ',
             'file': '📄',
             'folder': '📁',
-            'image': '🖼️',
-            'template': '📋',
-            'snippet': '⚡'
+            'image': '🖼️'
         }
         
-        # Detectar se é template ou snippet
-        if text.startswith('template:'):
-            icon = icons.get('template', '📋')
-            clean_text = text.replace('template:', '')
-            return f"{icon} {clean_text} (template)"
-        elif text.startswith('snippet:'):
-            icon = icons.get('snippet', '⚡')
-            clean_text = text.replace('snippet:', '')
-            return f"{icon} {clean_text} (snippet)"
-        else:
-            icon = icons.get(item_type, '•')
-            return f"{icon}  {text}"
+        icon = icons.get(item_type, '•')
+        return f"{icon}  {text}"
     
     def get_selected_text(self):
         """Retorna o texto selecionado"""
@@ -585,7 +521,7 @@ class UnifiedCodeEditor(QPlainTextEdit):
                 self.autocomplete_widget.show_completions(self, suggestions, current_pos)
 
     def get_enhanced_suggestions(self):
-        """Sugestões melhoradas com categorização inteligente - INCLUI TEMPLATES"""
+        """Sugestões melhoradas com categorização inteligente - INCLUI TODOS OS ARQUIVOS"""
         try:
             cursor = self.textCursor()
             position = cursor.position()
@@ -604,7 +540,7 @@ class UnifiedCodeEditor(QPlainTextEdit):
             elif context == 'function_call':
                 return self._get_function_suggestions()
             else:
-                return self._get_general_suggestions_with_templates(text_before)
+                return self._get_general_suggestions(text_before)
                 
         except Exception as e:
             print(f"❌ Erro nas sugestões melhoradas: {e}")
@@ -749,12 +685,14 @@ class UnifiedCodeEditor(QPlainTextEdit):
         
         return sorted(list(suggestions))
 
-    def _get_general_suggestions_with_templates(self, text_before):
-        """Sugestões gerais incluindo templates"""
+    def _get_general_suggestions(self, text_before):
+        """Sugestões gerais contextuais - INCLUI TODOS OS ARQUIVOS"""
         all_suggestions = set()
         
-        # Sugestões normais
+        # Palavras-chave da linguagem
         all_suggestions.update(self.get_language_keywords())
+        
+        # Definições locais
         all_suggestions.update(self.extract_local_definitions())
         
         # Sugestões do projeto
@@ -763,23 +701,14 @@ class UnifiedCodeEditor(QPlainTextEdit):
         all_suggestions.update([f + '()' for f in project_defs['functions']])
         all_suggestions.update(project_defs['classes'])
         all_suggestions.update(project_defs['variables'])
-        all_suggestions.update([os.path.basename(f) for f in project_defs['files']])
-        all_suggestions.update(project_defs['folders'])
-        all_suggestions.update(self.pip_packages)
-        all_suggestions.update([f"{b}()" for b in self.get_extended_builtins()])
+        all_suggestions.update(project_defs['files'])  # Inclui arquivos
+        all_suggestions.update(project_defs['folders'])  # Inclui pastas
         
-        # Adicionar templates da linguagem atual
-        try:
-            language = self.get_language()
-            templates = get_available_templates(language)
-            snippets = get_available_snippets(language)
-            
-            # Adicionar templates com prefixo
-            all_suggestions.update([f"template:{t}" for t in templates])
-            all_suggestions.update([f"snippet:{s}" for s in snippets])
-            
-        except ImportError:
-            print("❌ CompletPronto não disponível para templates")
+        # Pacotes pip
+        all_suggestions.update(self.pip_packages)
+        
+        # Built-ins
+        all_suggestions.update(self.get_extended_builtins())
         
         # Filtrar por prefixo atual
         cursor = self.textCursor()
@@ -790,20 +719,13 @@ class UnifiedCodeEditor(QPlainTextEdit):
             starting = [s for s in all_suggestions if s.lower().startswith(prefix)]
             containing = [s for s in all_suggestions if prefix in s.lower() and not s.lower().startswith(prefix)]
             
-            # Ordenar por relevância (templates primeiro)
+            # Ordenar por relevância
             def relevance_sort(s):
-                if s.startswith('template:'): return 0
-                elif s.startswith('snippet:'): return 1
-                elif s in self.extract_local_definitions(): return 2
-                elif s in self.get_language_keywords(): return 3
-                elif s in [f"{b}()" for b in self.get_extended_builtins()]: return 4
-                elif s in project_defs['imports']: return 5
-                elif s in project_defs['classes']: return 6
-                elif s in [f + '()' for f in project_defs['functions']]: return 7
-                elif s in project_defs['variables']: return 8
-                elif s in [os.path.basename(f) for f in project_defs['files']]: return 9
-                elif s in project_defs['folders']: return 10
-                else: return 11
+                if s in project_defs['imports']: return 0
+                elif s in self.extract_local_definitions(): return 1
+                elif s in self.get_language_keywords(): return 2
+                elif s in project_defs['files'] or s in project_defs['folders']: return 3
+                else: return 4
                 
             starting.sort(key=relevance_sort)
             containing.sort(key=relevance_sort)
@@ -815,31 +737,21 @@ class UnifiedCodeEditor(QPlainTextEdit):
     def get_extended_builtins(self):
         """Retorna uma lista maior de built-ins"""
         extended_builtins = [
-            'abs', 'all', 'any', 'ascii', 'bin', 'bool', 'breakpoint', 'bytearray',
-            'bytes', 'callable', 'chr', 'classmethod', 'compile', 'complex',
-            'delattr', 'dict', 'dir', 'divmod', 'enumerate', 'eval', 'exec',
-            'filter', 'float', 'format', 'frozenset', 'getattr', 'globals',
-            'hasattr', 'hash', 'help', 'hex', 'id', 'input', 'int', 'isinstance',
-            'issubclass', 'iter', 'len', 'list', 'locals', 'map', 'max', 'memoryview',
-            'min', 'next', 'object', 'oct', 'open', 'ord', 'pow', 'print', 'property',
-            'range', 'repr', 'reversed', 'round', 'set', 'setattr', 'slice', 'sorted',
-            'staticmethod', 'str', 'sum', 'super', 'tuple', 'type', 'vars', 'zip',
-            '__import__'
+            'abs()', 'all()', 'any()', 'ascii()', 'bin()', 'bool()', 'breakpoint()', 'bytearray()',
+            'bytes()', 'callable()', 'chr()', 'classmethod()', 'compile()', 'complex()',
+            'delattr()', 'dict()', 'dir()', 'divmod()', 'enumerate()', 'eval()', 'exec()',
+            'filter()', 'float()', 'format()', 'frozenset()', 'getattr()', 'globals()',
+            'hasattr()', 'hash()', 'help()', 'hex()', 'id()', 'input()', 'int()', 'isinstance()',
+            'issubclass()', 'iter()', 'len()', 'list()', 'locals()', 'map()', 'max()', 'memoryview()',
+            'min()', 'next()', 'object()', 'oct()', 'open()', 'ord()', 'pow()', 'print()', 'property()',
+            'range()', 'repr()', 'reversed()', 'round()', 'set()', 'setattr()', 'slice()', 'sorted()',
+            'staticmethod()', 'str()', 'sum()', 'super()', 'tuple()', 'type()', 'vars()', 'zip()',
+            '__import__()'
         ]
         return extended_builtins
 
     def insert_completion(self, text):
-        """Insere a sugestão selecionada de forma inteligente - COM SUPORTE A TEMPLATES"""
-        # Verificar se é um template (começa com "template:")
-        if text.startswith('template:'):
-            self._insert_template_completion(text)
-            return
-            
-        # Verificar se é um snippet (começa com "snippet:")  
-        if text.startswith('snippet:'):
-            self._insert_snippet_completion(text)
-            return
-            
+        """Insere a sugestão selecionada de forma inteligente"""
         cursor = self.textCursor()
         position = cursor.position()
         text_before = self.toPlainText()[:position]
@@ -869,250 +781,6 @@ class UnifiedCodeEditor(QPlainTextEdit):
         if text.endswith('()'):
             cursor.movePosition(QTextCursor.Left)
             self.setTextCursor(cursor)
-
-    def _insert_template_completion(self, template_text):
-        """Insere um template de código com placeholders inteligentes"""
-        try:
-            template_name = template_text.replace('template:', '')
-            language = self.get_language()
-            
-            # Obter o template base
-            template = quick_template(language, template_name)
-            
-            if not template:
-                print(f"❌ Template não encontrado: {template_name}")
-                return
-                
-            # Processar placeholders especiais
-            template = self._process_template_placeholders(template, template_name)
-            
-            # Inserir o template
-            cursor = self.textCursor()
-            
-            # Remover a palavra atual se houver
-            cursor.select(QTextCursor.WordUnderCursor)
-            cursor.removeSelectedText()
-            
-            # Inserir o template
-            cursor.insertText(template)
-            
-            # Posicionar cursor no primeiro placeholder ou posição padrão
-            self._position_cursor_after_template(template)
-            
-            print(f"✅ Template inserido: {template_name}")
-            
-        except ImportError:
-            print("❌ CompletPronto não encontrado")
-        except Exception as e:
-            print(f"❌ Erro ao inserir template: {e}")
-
-    def _insert_snippet_completion(self, snippet_text):
-        """Insere um snippet de código"""
-        try:
-            snippet_name = snippet_text.replace('snippet:', '')
-            language = self.get_language()
-            
-            # Obter o snippet
-            snippet = quick_snippet(language, snippet_name)
-            
-            if not snippet:
-                print(f"❌ Snippet não encontrado: {snippet_name}")
-                return
-                
-            # Inserir o snippet
-            cursor = self.textCursor()
-            
-            # Remover a palavra atual se houver
-            cursor.select(QTextCursor.WordUnderCursor)
-            cursor.removeSelectedText()
-            
-            cursor.insertText(snippet)
-            
-            print(f"✅ Snippet inserido: {snippet_name}")
-            
-        except ImportError:
-            print("❌ CompletPronto não encontrado")
-        except Exception as e:
-            print(f"❌ Erro ao inserir snippet: {e}")
-
-    def _process_template_placeholders(self, template, template_name):
-        """Processa placeholders especiais no template"""
-        import re
-        
-        # Mapeamento de valores padrão baseado no nome do template
-        default_values = {
-            # Python
-            'for_loop': {'var': 'i', 'start': '0', 'end': '10'},
-            'for_loop_list': {'item': 'item', 'list_name': 'my_list'},
-            'function_def': {'function_name': 'my_function', 'parameters': '', 'docstring': ''},
-            'class_def': {'class_name': 'MyClass', 'docstring': '', 'parameters': ''},
-            'if_statement': {'condition': 'condition'},
-            'while_loop': {'condition': 'condition'},
-            
-            # JavaScript
-            'function_def': {'functionName': 'myFunction', 'parameters': ''},
-            'arrow_function': {'functionName': 'myFunction', 'parameters': ''},
-            'for_loop': {'var': 'i', 'start': '0', 'end': '10'},
-            
-            # HTML
-            'html5_boilerplate': {'title': 'My Page', 'css_file': 'style.css', 'js_file': 'script.js'},
-            'div': {'class': '', 'content': ''},
-            'paragraph': {'class': '', 'content': 'Hello World'},
-        }
-        
-        # Aplicar valores padrão
-        defaults = default_values.get(template_name, {})
-        for key, value in defaults.items():
-            placeholder = '{' + key + '}'
-            if placeholder in template:
-                template = template.replace(placeholder, value)
-        
-        # Processar placeholders especiais
-        template = template.replace('{cursor}', '')  # Remove marcador de cursor
-        
-        # Para placeholders não substituídos, deixar vazio
-        template = re.sub(r'\{[^}]+\}', '', template)
-        
-        return template
-
-    def _position_cursor_after_template(self, template):
-        """Posiciona o cursor inteligentemente após inserir template"""
-        cursor = self.textCursor()
-        
-        # Lógica para posicionar cursor baseada no template
-        if 'def ' in template and '):' in template:
-            # Para funções, posicionar após os parênteses na linha do docstring
-            lines = template.split('\n')
-            for i, line in enumerate(lines):
-                if '):' in line and i + 1 < len(lines):
-                    # Mover para linha após a definição da função
-                    cursor.movePosition(QTextCursor.StartOfLine)
-                    for _ in range(i + 1):
-                        cursor.movePosition(QTextCursor.Down)
-                    cursor.movePosition(QTextCursor.EndOfLine)
-                    break
-                    
-        elif 'for ' in template and '):' in template:
-            # Para loops, posicionar dentro do loop
-            lines = template.split('\n')
-            for i, line in enumerate(lines):
-                if '):' in line and i + 1 < len(lines):
-                    cursor.movePosition(QTextCursor.StartOfLine)
-                    for _ in range(i + 1):
-                        cursor.movePosition(QTextCursor.Down)
-                    cursor.movePosition(QTextCursor.Right, QTextCursor.MoveAnchor, 4)  # Indentação
-                    break
-                    
-        elif 'class ' in template and '):' in template:
-            # Para classes, posicionar no __init__ ou após a definição
-            if '__init__' in template:
-                init_pos = template.find('__init__')
-                cursor.setPosition(cursor.position() + init_pos)
-            else:
-                lines = template.split('\n')
-                for i, line in enumerate(lines):
-                    if '):' in line and i + 1 < len(lines):
-                        cursor.movePosition(QTextCursor.StartOfLine)
-                        for _ in range(i + 1):
-                            cursor.movePosition(QTextCursor.Down)
-                        cursor.movePosition(QTextCursor.EndOfLine)
-                        break
-        
-        self.setTextCursor(cursor)
-
-    def _get_fallback_suggestions(self):
-        """Sugestões de fallback melhoradas"""
-        return [
-            "print()", "def", "class", "if", "else", "for", "while", 
-            "import", "from", "return", "True", "False", "None",
-            "len()", "str()", "list()", "dict()", "range()", "type()"
-        ]
-
-    # ===== CORREÇÃO DE INDENTAÇÃO AUTOMÁTICA =====
-    def _paste_with_formatting(self):
-        """Cola e formata automaticamente o texto colado"""
-        # Primeiro cola o texto
-        self.paste()
-        
-        # Aguarda um pouco para o texto ser processado e depois formata
-        QTimer.singleShot(100, self._format_pasted_text)
-
-    def _format_pasted_text(self):
-        """Formata o texto que foi colado com indentação correta"""
-        try:
-            cursor = self.textCursor()
-            if not cursor.hasSelection():
-                # Se não há seleção, formata da posição atual para baixo
-                cursor.movePosition(QTextCursor.StartOfLine)
-                cursor.movePosition(QTextCursor.End, QTextCursor.KeepAnchor)
-            
-            selected_text = cursor.selectedText()
-            if not selected_text.strip():
-                return
-                
-            # Corrige a indentação do texto selecionado
-            self._fix_pasted_indentation(cursor)
-            
-        except Exception as e:
-            print(f"❌ Erro ao formatar texto colado: {e}")
-
-    def _fix_pasted_indentation(self, cursor):
-        """Corrige a indentação do texto colado de forma inteligente"""
-        try:
-            start_pos = cursor.selectionStart()
-            end_pos = cursor.selectionEnd()
-            
-            cursor.beginEditBlock()
-            
-            start_block = self.document().findBlock(start_pos)
-            end_block = self.document().findBlock(end_pos)
-            
-            current_block = start_block
-            fixed_blocks = []
-            
-            # Determinar indentação base da primeira linha
-            first_line_text = start_block.text()
-            base_indent = len(first_line_text) - len(first_line_text.lstrip())
-            
-            while current_block.isValid() and current_block.position() <= end_block.position():
-                line_text = current_block.text()
-                
-                # Para a primeira linha, manter a indentação original
-                if current_block == start_block:
-                    fixed_line = line_text
-                else:
-                    # Para linhas subsequentes, ajustar indentação relativa
-                    current_indent = len(line_text) - len(line_text.lstrip())
-                    stripped = line_text.lstrip()
-                    
-                    # Se a linha não vazia, aplicar indentação relativa
-                    if stripped:
-                        # Manter a diferença relativa de indentação
-                        relative_indent = max(0, current_indent - base_indent)
-                        fixed_line = ' ' * (base_indent + relative_indent) + stripped
-                    else:
-                        fixed_line = line_text
-                        
-                fixed_blocks.append(fixed_line)
-                current_block = current_block.next()
-            
-            # Substituir o texto
-            cursor.setPosition(start_block.position())
-            cursor.movePosition(QTextCursor.EndOfBlock, QTextCursor.KeepAnchor)
-            
-            current_block = start_block.next()
-            while current_block.isValid() and current_block.position() <= end_block.position():
-                cursor.movePosition(QTextCursor.NextBlock, QTextCursor.KeepAnchor)
-                cursor.movePosition(QTextCursor.EndOfBlock, QTextCursor.KeepAnchor)
-                current_block = current_block.next()
-            
-            cursor.insertText('\n'.join(fixed_blocks))
-            cursor.endEditBlock()
-            
-            print("✅ Texto colado formatado automaticamente")
-            
-        except Exception as e:
-            print(f"❌ Erro ao corrigir indentação do texto colado: {e}")
 
     # ===== CONFIGURAÇÕES BÁSICAS =====
     def setup_basic_settings(self):
@@ -1258,6 +926,14 @@ class UnifiedCodeEditor(QPlainTextEdit):
             
             block = block.next()
             top += self.blockBoundingRect(block).height()
+
+    def _get_fallback_suggestions(self):
+        """Sugestões de fallback melhoradas"""
+        return [
+            "print()", "def", "class", "if", "else", "for", "while", 
+            "import", "from", "return", "True", "False", "None",
+            "len()", "str()", "list()", "dict()", "range()", "type()"
+        ]
 
     def get_basic_suggestions(self):
         """Sugestões básicas de fallback"""
@@ -1770,6 +1446,21 @@ class UnifiedCodeEditor(QPlainTextEdit):
             current_block = current_block.next()
         
         cursor.endEditBlock()
+
+    def _paste_with_formatting(self):
+        """Cola e formata apenas o texto colado"""
+        self.paste()
+        QTimer.singleShot(50, self._format_pasted_text)
+
+    def _format_pasted_text(self):
+        """Formata apenas o texto que foi colado"""
+        try:
+            cursor = self.textCursor()
+            if not cursor.hasSelection():
+                return
+            self.fix_indentation()
+        except Exception as e:
+            print(f"❌ Erro ao formatar texto colado: {e}")
 
     # ===== GUIAS DE INDENTAÇÃO =====
     def setup_indentation_guides(self):

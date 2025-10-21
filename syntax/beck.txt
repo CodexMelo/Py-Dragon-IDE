@@ -166,16 +166,17 @@ class PythonHighlighter(BaseHighlighter):
             (QRegularExpression(r'\b(self|cls)\b'), self_format)
         )
 
+
 class JavaScriptHighlighter(BaseHighlighter):
-    """Syntax Highlighter dedicado para JavaScript - VERSÃO CORRIGIDA"""
+    """Syntax Highlighter dedicado para JavaScript"""
     
     def setup_rules(self):
         self.setup_javascript_rules()
     
     def setup_javascript_rules(self):
-        """Configura regras específicas para JavaScript - CORRIGIDO"""
+        """Configura regras específicas para JavaScript"""
         
-        # Palavras-chave JavaScript - CORREÇÃO: lista expandida
+        # Palavras-chave JavaScript
         keyword_format = QTextCharFormat()
         keyword_format.setForeground(self.colors['keyword'])
         keyword_format.setFontWeight(QFont.Bold)
@@ -185,24 +186,14 @@ class JavaScriptHighlighter(BaseHighlighter):
             "default", "delete", "do", "else", "export", "extends", "finally",
             "for", "function", "if", "import", "in", "instanceof", "new",
             "return", "super", "switch", "this", "throw", "try", "typeof",
-            "var", "void", "while", "with", "yield", "await", "let", "static",
-            "async", "get", "set", "of", "from", "as"
+            "var", "void", "while", "with", "yield", "await", "let", "static"
         ]
         
         for keyword in js_keywords:
             pattern = QRegularExpression(f"\\b{keyword}\\b")
             self.highlighting_rules.append((pattern, keyword_format))
         
-        # Valores booleanos e null
-        constant_format = QTextCharFormat()
-        constant_format.setForeground(self.colors['constant'])
-        
-        constants = ["true", "false", "null", "undefined", "NaN", "Infinity"]
-        for constant in constants:
-            pattern = QRegularExpression(f"\\b{constant}\\b")
-            self.highlighting_rules.append((pattern, constant_format))
-        
-        # Funções - CORREÇÃO: regex mais precisa
+        # Funções
         function_format = QTextCharFormat()
         function_format.setForeground(self.colors['function'])
         
@@ -210,12 +201,7 @@ class JavaScriptHighlighter(BaseHighlighter):
             (QRegularExpression(r'\bfunction\s+([a-zA-Z_][a-zA-Z0-9_]*)'), function_format)
         )
         
-        # Arrow functions
-        self.highlighting_rules.append(
-            (QRegularExpression(r'([a-zA-Z_][a-zA-Z0-9_]*)\s*(?=\=\>)'), function_format)
-        )
-        
-        # Classes - CORREÇÃO: regex mais precisa
+        # Classes
         class_format = QTextCharFormat()
         class_format.setForeground(self.colors['class'])
         class_format.setFontWeight(QFont.Bold)
@@ -224,7 +210,7 @@ class JavaScriptHighlighter(BaseHighlighter):
             (QRegularExpression(r'\bclass\s+([a-zA-Z_][a-zA-Z0-9_]*)'), class_format)
         )
         
-        # Strings - CORREÇÃO: template literals
+        # Strings
         string_format = QTextCharFormat()
         string_format.setForeground(self.colors['string'])
         
@@ -238,195 +224,54 @@ class JavaScriptHighlighter(BaseHighlighter):
             (QRegularExpression(r'`[^`\\]*(\\.[^`\\]*)*`'), string_format)
         )
         
-        # Comentários - CORREÇÃO: regex mais eficiente
+        # Comentários
         comment_format = QTextCharFormat()
         comment_format.setForeground(self.colors['comment'])
         comment_format.setFontItalic(True)
         
         self.highlighting_rules.append(
-            (QRegularExpression(r'//[^\n]*'), comment_format)
+            (QRegularExpression(r'//.*'), comment_format)
         )
         self.highlighting_rules.append(
             (QRegularExpression(r'/\*.*?\*/', QRegularExpression.DotMatchesEverythingOption), comment_format)
         )
         
-        # Números - CORREÇÃO: regex mais completa
+        # Números
         number_format = QTextCharFormat()
         number_format.setForeground(self.colors['number'])
         
         self.highlighting_rules.append(
             (QRegularExpression(r'\b[0-9]+\b'), number_format)
         )
-        self.highlighting_rules.append(
-            (QRegularExpression(r'\b[0-9]+\.[0-9]+\b'), number_format)
-        )
-        self.highlighting_rules.append(
-            (QRegularExpression(r'\b0x[0-9a-fA-F]+\b'), number_format)
-        )
-        
-        # Operadores - CORREÇÃO: adicionar operadores JS
-        operator_format = QTextCharFormat()
-        operator_format.setForeground(self.colors['operator'])
-        
-        operators = [r'===', r'!==', r'==', r'!=', r'\|\|', r'&&', r'\?', r':']
-        for op in operators:
-            pattern = QRegularExpression(op)
-            self.highlighting_rules.append((pattern, operator_format))
-        
-        # Regex literals - CORREÇÃO: destacar regex
-        regex_format = QTextCharFormat()
-        regex_format.setForeground(QColor("#CE9178"))
-        
-        self.highlighting_rules.append(
-            (QRegularExpression(r'/(?![*/])[^/\\]*(\\.[^/\\]*)*/[gimuy]*'), regex_format)
-        )
 
 
 class HTMLHighlighter(BaseHighlighter):
-    """Syntax Highlighter dedicado para HTML - VERSÃO CORRIGIDA"""
+    """Syntax Highlighter dedicado para HTML"""
     
     def setup_rules(self):
         self.setup_html_rules()
     
     def setup_html_rules(self):
-        """Configura regras específicas para HTML - CORRIGIDO"""
+        """Configura regras específicas para HTML"""
         
-        # Tags HTML - CORREÇÃO: regex mais precisa
+        # Tags HTML
         tag_format = QTextCharFormat()
         tag_format.setForeground(QColor("#569CD6"))
         tag_format.setFontWeight(QFont.Bold)
         
-        # Tags de abertura e fechamento
         self.highlighting_rules.append(
-            (QRegularExpression(r'</?[a-zA-Z][a-zA-Z0-9]*\b'), tag_format)
+            (QRegularExpression(r'</?[a-zA-Z][^>]*>'), tag_format)
         )
         
-        # Atributos - CORREÇÃO: regex mais precisa
+        # Atributos
         attribute_format = QTextCharFormat()
         attribute_format.setForeground(QColor("#9CDCFE"))
         
         self.highlighting_rules.append(
-            (QRegularExpression(r'\b[a-zA-Z-]+(?=\s*=)'), attribute_format)
+            (QRegularExpression(r'\b[a-zA-Z-]+(?=\=)'), attribute_format)
         )
         
-        # Strings (valores de atributos) - CORREÇÃO: incluir escape
-        string_format = QTextCharFormat()
-        string_format.setForeground(QColor("#CE9178"))
-        
-        self.highlighting_rules.append(
-            (QRegularExpression(r'"[^"\\]*(\\.[^"\\]*)*"'), string_format)
-        )
-        self.highlighting_rules.append(
-            (QRegularExpression(r"'[^'\\]*(\\.[^'\\]*)*'"), string_format)
-        )
-        
-        # Comentários HTML - CORREÇÃO: regex mais eficiente
-        comment_format = QTextCharFormat()
-        comment_format.setForeground(QColor("#6A9955"))
-        comment_format.setFontItalic(True)
-        
-        self.highlighting_rules.append(
-            (QRegularExpression(r'<!--[^-]*(?:-[^-]+)*-->'), comment_format)
-        )
-        
-        # DOCTYPE e instruções XML
-        doctype_format = QTextCharFormat()
-        doctype_format.setForeground(QColor("#569CD6"))
-        doctype_format.setFontWeight(QFont.Bold)
-        
-        self.highlighting_rules.append(
-            (QRegularExpression(r'<!DOCTYPE[^>]*>'), doctype_format)
-        )
-        self.highlighting_rules.append(
-            (QRegularExpression(r'<\?xml[^?>]*\?>'), doctype_format)
-        )
-class CSSHighlighter(BaseHighlighter):
-    """Syntax Highlighter dedicado para CSS - VERSÃO CORRIGIDA"""
-    
-    def setup_rules(self):
-        self.setup_css_rules()
-    
-    def setup_css_rules(self):
-        """Configura regras específicas para CSS - CORRIGIDO"""
-        
-        # Propriedades CSS - CORREÇÃO: lista expandida
-        property_format = QTextCharFormat()
-        property_format.setForeground(QColor("#9CDCFE"))
-        
-        css_properties = [
-            # Layout
-            "display", "position", "float", "clear", "overflow", "visibility",
-            "z-index", "box-sizing", "flex", "flex-direction", "flex-wrap",
-            "justify-content", "align-items", "align-content", "grid",
-            "grid-template-columns", "grid-template-rows", "grid-gap",
-            
-            # Box Model
-            "width", "height", "margin", "margin-top", "margin-right", 
-            "margin-bottom", "margin-left", "padding", "padding-top",
-            "padding-right", "padding-bottom", "padding-left", "border",
-            "border-width", "border-style", "border-color", "border-radius",
-            
-            # Texto
-            "color", "font-family", "font-size", "font-weight", "font-style",
-            "text-align", "text-decoration", "text-transform", "line-height",
-            "letter-spacing", "word-spacing", "white-space",
-            
-            # Cores e Fundos
-            "background", "background-color", "background-image", 
-            "background-repeat", "background-position", "background-size",
-            "opacity",
-            
-            # Animações e Transições
-            "transition", "animation", "transform", "box-shadow", "text-shadow"
-        ]
-        
-        for prop in css_properties:
-            pattern = QRegularExpression(f"\\b{prop}\\b")
-            self.highlighting_rules.append((pattern, property_format))
-        
-        # Seletores - CORREÇÃO: regex mais precisa
-        selector_format = QTextCharFormat()
-        selector_format.setForeground(QColor("#D7BA7D"))
-        selector_format.setFontWeight(QFont.Bold)
-        
-        self.highlighting_rules.append(
-            (QRegularExpression(r'[.#]?[a-zA-Z_-][\w-]*(?=\s*\{)'), selector_format)
-        )
-        
-        # Pseudoclasses e pseudoelementos
-        self.highlighting_rules.append(
-            (QRegularExpression(r'::?[a-zA-Z-]+'), selector_format)
-        )
-        
-        # Valores - CORREÇÃO: regex mais precisa
-        value_format = QTextCharFormat()
-        value_format.setForeground(QColor("#CE9178"))
-        
-        self.highlighting_rules.append(
-            (QRegularExpression(r':[^;{}]*;'), value_format)
-        )
-        
-        # Unidades de medida
-        unit_format = QTextCharFormat()
-        unit_format.setForeground(QColor("#B5CEA8"))
-        
-        units = ["px", "em", "rem", "%", "vh", "vw", "vmin", "vmax", "pt"]
-        for unit in units:
-            pattern = QRegularExpression(f"\\b[0-9.]+{unit}\\b")
-            self.highlighting_rules.append((pattern, unit_format))
-        
-        # Cores HEX e funções - CORREÇÃO: regex para cores
-        color_format = QTextCharFormat()
-        color_format.setForeground(QColor("#CE9178"))
-        
-        self.highlighting_rules.append(
-            (QRegularExpression(r'#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})\b'), color_format)
-        )
-        self.highlighting_rules.append(
-            (QRegularExpression(r'\b(rgb|rgba|hsl|hsla)\('), color_format)
-        )
-        
-        # Strings
+        # Strings (valores de atributos)
         string_format = QTextCharFormat()
         string_format.setForeground(QColor("#CE9178"))
         
@@ -437,22 +282,70 @@ class CSSHighlighter(BaseHighlighter):
             (QRegularExpression(r"'[^']*'"), string_format)
         )
         
-        # Comentários - CORREÇÃO: regex mais eficiente
+        # Comentários HTML
+        comment_format = QTextCharFormat()
+        comment_format.setForeground(QColor("#6A9955"))
+        comment_format.setFontItalic(True)
+        
+        self.highlighting_rules.append(
+            (QRegularExpression(r'<!--.*?-->', QRegularExpression.DotMatchesEverythingOption), comment_format)
+        )
+
+
+class CSSHighlighter(BaseHighlighter):
+    """Syntax Highlighter dedicado para CSS"""
+    
+    def setup_rules(self):
+        self.setup_css_rules()
+    
+    def setup_css_rules(self):
+        """Configura regras específicas para CSS"""
+        
+        # Propriedades CSS
+        property_format = QTextCharFormat()
+        property_format.setForeground(QColor("#9CDCFE"))
+        
+        css_properties = [
+            "color", "background", "font", "margin", "padding", "border",
+            "width", "height", "display", "position", "float", "clear",
+            "text-align", "font-size", "font-family", "line-height"
+        ]
+        
+        for prop in css_properties:
+            pattern = QRegularExpression(f"\\b{prop}\\b")
+            self.highlighting_rules.append((pattern, property_format))
+        
+        # Seletores
+        selector_format = QTextCharFormat()
+        selector_format.setForeground(QColor("#D7BA7D"))
+        
+        self.highlighting_rules.append(
+            (QRegularExpression(r'[.#]?[a-zA-Z-][^{]*\{'), selector_format)
+        )
+        
+        # Valores
+        value_format = QTextCharFormat()
+        value_format.setForeground(QColor("#CE9178"))
+        
+        self.highlighting_rules.append(
+            (QRegularExpression(r':[^;]*;'), value_format)
+        )
+        
+        # Strings
+        string_format = QTextCharFormat()
+        string_format.setForeground(QColor("#CE9178"))
+        
+        self.highlighting_rules.append(
+            (QRegularExpression(r'"[^"]*"'), string_format)
+        )
+        
+        # Comentários
         comment_format = QTextCharFormat()
         comment_format.setForeground(QColor("#6A9955"))
         comment_format.setFontItalic(True)
         
         self.highlighting_rules.append(
             (QRegularExpression(r'/\*.*?\*/', QRegularExpression.DotMatchesEverythingOption), comment_format)
-        )
-        
-        # !important
-        important_format = QTextCharFormat()
-        important_format.setForeground(QColor("#569CD6"))
-        important_format.setFontWeight(QFont.Bold)
-        
-        self.highlighting_rules.append(
-            (QRegularExpression(r'!important'), important_format)
         )
 
 
@@ -627,130 +520,78 @@ class PHPHighlighter(BaseHighlighter):
 
 
 class TextHighlighter(BaseHighlighter):
-    """Highlighter genérico MELHORADO para texto simples"""
+    """Highlighter genérico para texto simples"""
     
     def setup_rules(self):
-        """Configura regras úteis para qualquer tipo de texto"""
-        
-        # ✅ COMENTÁRIOS (linhas começando com #, //, <!-- -->)
-        comment_format = QTextCharFormat()
-        comment_format.setForeground(self.colors['comment'])
-        comment_format.setFontItalic(True)
-        
-        # Comentários de linha (#)
-        self.highlighting_rules.append(
-            (QRegularExpression(r'^#.*'), comment_format)
-        )
-        # Comentários de linha (//)
-        self.highlighting_rules.append(
-            (QRegularExpression(r'//.*'), comment_format)
-        )
-        # Comentários HTML (<!-- -->)
-        self.highlighting_rules.append(
-            (QRegularExpression(r'<!--.*?-->', QRegularExpression.DotMatchesEverythingOption), comment_format)
-        )
-        
-        # ✅ STRINGS (aspas duplas e simples)
-        string_format = QTextCharFormat()
-        string_format.setForeground(self.colors['string'])
-        
-        self.highlighting_rules.append(
-            (QRegularExpression(r'"[^"\\]*(\\.[^"\\]*)*"'), string_format)
-        )
-        self.highlighting_rules.append(
-            (QRegularExpression(r"'[^'\\]*(\\.[^'\\]*)*'"), string_format)
-        )
-        
-        # ✅ NÚMEROS (inteiros e decimais)
-        number_format = QTextCharFormat()
-        number_format.setForeground(self.colors['number'])
-        
-        self.highlighting_rules.append(
-            (QRegularExpression(r'\b[0-9]+\b'), number_format)
-        )
-        self.highlighting_rules.append(
-            (QRegularExpression(r'\b[0-9]+\.[0-9]+\b'), number_format)
-        )
-        
-        # ✅ PALAVRAS-CHAVE COMUNS (para qualquer linguagem)
-        keyword_format = QTextCharFormat()
-        keyword_format.setForeground(self.colors['keyword'])
-        keyword_format.setFontWeight(QFont.Bold)
-        
-        common_keywords = [
-            'function', 'def', 'class', 'if', 'else', 'for', 'while', 
-            'return', 'import', 'from', 'var', 'let', 'const', 'true', 
-            'false', 'null', 'undefined', 'None', 'True', 'False'
-        ]
-        
-        for keyword in common_keywords:
-            pattern = QRegularExpression(f"\\b{keyword}\\b")
-            self.highlighting_rules.append((pattern, keyword_format))
+        # Apenas regras básicas para texto
+        self.setup_basic_rules()
 
 
-    # Métodos auxiliares para regras comuns
-    def setup_common_rules(self):
-        """Configura regras comuns para várias linguagens"""
-        # Strings
-        string_format = QTextCharFormat()
-        string_format.setForeground(self.colors['string'])
-        
-        self.highlighting_rules.append(
-            (QRegularExpression(r'"[^"]*"'), string_format)
-        )
-        self.highlighting_rules.append(
-            (QRegularExpression(r"'[^']*'"), string_format)
-        )
-        
-        # Comentários de linha
-        comment_format = QTextCharFormat()
-        comment_format.setForeground(self.colors['comment'])
-        comment_format.setFontItalic(True)
-        
-        self.highlighting_rules.append(
-            (QRegularExpression(r'//.*'), comment_format)
-        )
-        
-        # Comentários de bloco
-        self.highlighting_rules.append(
-            (QRegularExpression(r'/\*.*?\*/', QRegularExpression.DotMatchesEverythingOption), comment_format)
-        )
-        
-        # Números
-        number_format = QTextCharFormat()
-        number_format.setForeground(self.colors['number'])
-        
-        self.highlighting_rules.append(
-            (QRegularExpression(r'\b[0-9]+\b'), number_format)
-        )
+# Métodos auxiliares para regras comuns
+def setup_common_rules(self):
+    """Configura regras comuns para várias linguagens"""
+    # Strings
+    string_format = QTextCharFormat()
+    string_format.setForeground(self.colors['string'])
     
-    def setup_basic_rules(self):
-        """Configura regras básicas para linguagens não suportadas"""
-        # Apenas strings e números básicos
-        string_format = QTextCharFormat()
-        string_format.setForeground(self.colors['string'])
-        
-        self.highlighting_rules.append(
-            (QRegularExpression(r'"[^"]*"'), string_format)
-        )
-        
-        number_format = QTextCharFormat()
-        number_format.setForeground(self.colors['number'])
-        
-        self.highlighting_rules.append(
-            (QRegularExpression(r'\b[0-9]+\b'), number_format)
-        )
+    self.highlighting_rules.append(
+        (QRegularExpression(r'"[^"]*"'), string_format)
+    )
+    self.highlighting_rules.append(
+        (QRegularExpression(r"'[^']*'"), string_format)
+    )
     
-    # Adiciona os métodos auxiliares às classes
-    BaseHighlighter.setup_common_rules = setup_common_rules
-    BaseHighlighter.setup_basic_rules = setup_basic_rules
+    # Comentários de linha
+    comment_format = QTextCharFormat()
+    comment_format.setForeground(self.colors['comment'])
+    comment_format.setFontItalic(True)
     
+    self.highlighting_rules.append(
+        (QRegularExpression(r'//.*'), comment_format)
+    )
     
+    # Comentários de bloco
+    self.highlighting_rules.append(
+        (QRegularExpression(r'/\*.*?\*/', QRegularExpression.DotMatchesEverythingOption), comment_format)
+    )
+    
+    # Números
+    number_format = QTextCharFormat()
+    number_format.setForeground(self.colors['number'])
+    
+    self.highlighting_rules.append(
+        (QRegularExpression(r'\b[0-9]+\b'), number_format)
+    )
 
+def setup_basic_rules(self):
+    """Configura regras básicas para linguagens não suportadas"""
+    # Apenas strings e números básicos
+    string_format = QTextCharFormat()
+    string_format.setForeground(self.colors['string'])
+    
+    self.highlighting_rules.append(
+        (QRegularExpression(r'"[^"]*"'), string_format)
+    )
+    
+    number_format = QTextCharFormat()
+    number_format.setForeground(self.colors['number'])
+    
+    self.highlighting_rules.append(
+        (QRegularExpression(r'\b[0-9]+\b'), number_format)
+    )
+
+# Adiciona os métodos auxiliares às classes
+BaseHighlighter.setup_common_rules = setup_common_rules
+BaseHighlighter.setup_basic_rules = setup_basic_rules
+
+
+# Fábrica de Highlighters
 class HighlighterFactory:
+    """Fábrica para criar highlighters baseados na extensão do arquivo"""
+    
     @staticmethod
     def create_highlighter(file_path, document):
-        """Cria o highlighter apropriado baseado na extensão do arquivo - CORRIGIDO"""
+        """Cria o highlighter apropriado baseado na extensão do arquivo"""
         if not file_path:
             return TextHighlighter(document)
         
@@ -759,31 +600,33 @@ class HighlighterFactory:
         highlighter_map = {
             'py': PythonHighlighter,
             'js': JavaScriptHighlighter,
-            'jsx': JavaScriptHighlighter,  # ✅ ADICIONADO
-            'ts': JavaScriptHighlighter,   # ✅ ADICIONADO
-            'tsx': JavaScriptHighlighter,  # ✅ ADICIONADO
             'html': HTMLHighlighter,
             'htm': HTMLHighlighter,
             'css': CSSHighlighter,
-            'scss': CSSHighlighter,        # ✅ ADICIONADO
-            'sass': CSSHighlighter,        # ✅ ADICIONADO
-            'less': CSSHighlighter,        # ✅ ADICIONADO
             'json': JSONHighlighter,
-            'xml': HTMLHighlighter,        # ✅ CORRIGIDO: XML usa HTML highlighter
             'java': JavaHighlighter,
             'cpp': CppHighlighter,
             'c': CppHighlighter,
             'h': CppHighlighter,
-            'hpp': CppHighlighter,         # ✅ ADICIONADO
             'php': PHPHighlighter,
-            'rb': TextHighlighter,         # Ruby - placeholder
-            'go': TextHighlighter,         # Go - placeholder
-            'rs': TextHighlighter,         # Rust - placeholder
-            'swift': TextHighlighter,      # Swift - placeholder
-            'kt': TextHighlighter,         # Kotlin - placeholder
             'txt': TextHighlighter,
             'md': TextHighlighter,
         }
         
         highlighter_class = highlighter_map.get(extension, TextHighlighter)
         return highlighter_class(document)
+    
+    @staticmethod
+    def get_supported_languages():
+        """Retorna lista de linguagens suportadas"""
+        return {
+            'Python': ['.py'],
+            'JavaScript': ['.js'],
+            'HTML': ['.html', '.htm'],
+            'CSS': ['.css'],
+            'JSON': ['.json'],
+            'Java': ['.java'],
+            'C/C++': ['.cpp', '.c', '.h'],
+            'PHP': ['.php'],
+            'Text': ['.txt', '.md']
+        }

@@ -3,6 +3,8 @@ from PySide6.QtGui import *
 from PySide6.QtWidgets import *  # ✅ CORREÇÃO: Adicionar este import
 from typing import Dict, Any
 import os
+from syntax.highlighters import HighlighterFactory
+
 class SyntaxHighlightingManager:
     
     def __init__(self, ide_instance):
@@ -23,19 +25,18 @@ class SyntaxHighlightingManager:
         if editor in self.highlighters:
             self.highlighters[editor].setDocument(None)
             
-        # ✅ CORREÇÃO: Usar HighlighterFactory para criar o highlighter correto
+        # ✅ CORREÇÃO: Usar HighlighterFactory importada no topo
         try:
-            from syntax.highlighters import HighlighterFactory
             highlighter = HighlighterFactory.create_highlighter(file_path, editor.document())
             self.highlighters[editor] = highlighter
             print(f"✅ Highlighter criado para: {language}")
             
-        except ImportError:
+        except Exception as e:
+            print(f"⚠️ Erro ao criar highlighter: {e}, usando fallback")
             # Fallback: criar highlighter básico
-            print("⚠️ HighlighterFactory não encontrado, usando fallback")
             highlighter = self._create_basic_highlighter(language, editor.document())
             self.highlighters[editor] = highlighter
-            
+        
         # Aplica configurações adicionais
         self.apply_editor_settings(editor)
     
@@ -149,7 +150,7 @@ class LanguageSyntaxManager:
             'go': self._get_go_syntax(),
             'rust': self._get_rust_syntax(),
             'swift': self._get_swift_syntax(),
-            'kotlin': self._get_kotlin_syntax(),
+                'kotlin': self._get_kotlin_syntax(),
             'typescript': self._get_typescript_syntax(),
             'yaml': self._get_yaml_syntax(),
             'xml': self._get_xml_syntax(),
