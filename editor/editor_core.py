@@ -1030,13 +1030,33 @@ class UnifiedCodeEditor(QPlainTextEdit):
 
     # ===== CORREÇÃO DE INDENTAÇÃO AUTOMÁTICA =====
     def _paste_with_formatting(self):
-        """Cola e formata automaticamente o texto colado"""
-        # Primeiro cola o texto
-        self.paste()
-        
-        # Aguarda um pouco para o texto ser processado e depois formata
-        QTimer.singleShot(100, self._format_pasted_text)
-
+        """Cola e formata automaticamente APENAS o texto colado"""
+        try:
+            # Obter a posição atual do cursor ANTES de colar
+            original_cursor = self.textCursor()
+            original_position = original_cursor.position()
+            
+            # Colar o texto normalmente
+            self.paste()
+            
+            # Obter a nova posição do cursor após colar
+            new_cursor = self.textCursor()
+            new_position = new_cursor.position()
+            
+            # Calcular o texto que foi colado (baseado na diferença de posição)
+            # Isso é uma aproximação - vamos selecionar da posição original até a nova
+            selection_cursor = QTextCursor(self.document())
+            selection_cursor.setPosition(original_position)
+            selection_cursor.setPosition(new_position, QTextCursor.KeepAnchor)
+            
+            # Aplicar formatação APENAS no texto selecionado (texto colado)
+            self._fix_pasted_indentation(selection_cursor)
+            
+            print("✅ Apenas o texto colado foi formatado automaticamente")
+            
+        except Exception as e:
+            print(f"❌ Erro ao formatar texto colado: {e}")
+    
     def _format_pasted_text(self):
         """Formata o texto que foi colado com indentação correta"""
         try:
@@ -1057,8 +1077,11 @@ class UnifiedCodeEditor(QPlainTextEdit):
             print(f"❌ Erro ao formatar texto colado: {e}")
 
     def _fix_pasted_indentation(self, cursor):
-        """Corrige a indentação do texto colado de forma inteligente"""
+        """Corrige a indentação APENAS do texto colado"""
         try:
+            if not cursor.hasSelection():
+                return
+                
             start_pos = cursor.selectionStart()
             end_pos = cursor.selectionEnd()
             
@@ -1070,18 +1093,18 @@ class UnifiedCodeEditor(QPlainTextEdit):
             current_block = start_block
             fixed_blocks = []
             
-            # Determinar indentação base da primeira linha
+            # Determinar indentação base da primeira linha do texto colado
             first_line_text = start_block.text()
             base_indent = len(first_line_text) - len(first_line_text.lstrip())
             
             while current_block.isValid() and current_block.position() <= end_block.position():
                 line_text = current_block.text()
                 
-                # Para a primeira linha, manter a indentação original
+                # Para a primeira linha do texto colado, manter a indentação original
                 if current_block == start_block:
                     fixed_line = line_text
                 else:
-                    # Para linhas subsequentes, ajustar indentação relativa
+                    # Para linhas subsequentes do texto colado, ajustar indentação relativa
                     current_indent = len(line_text) - len(line_text.lstrip())
                     stripped = line_text.lstrip()
                     
@@ -1096,7 +1119,7 @@ class UnifiedCodeEditor(QPlainTextEdit):
                 fixed_blocks.append(fixed_line)
                 current_block = current_block.next()
             
-            # Substituir o texto
+            # Substituir APENAS o texto selecionado (texto colado)
             cursor.setPosition(start_block.position())
             cursor.movePosition(QTextCursor.EndOfBlock, QTextCursor.KeepAnchor)
             
@@ -1109,11 +1132,10 @@ class UnifiedCodeEditor(QPlainTextEdit):
             cursor.insertText('\n'.join(fixed_blocks))
             cursor.endEditBlock()
             
-            print("✅ Texto colado formatado automaticamente")
-            
         except Exception as e:
             print(f"❌ Erro ao corrigir indentação do texto colado: {e}")
-
+            cursor.endEditBlock()
+    
     # ===== CONFIGURAÇÕES BÁSICAS =====
     def setup_basic_settings(self):
         """Configurações básicas do editor"""
