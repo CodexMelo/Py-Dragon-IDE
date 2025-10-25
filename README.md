@@ -199,6 +199,3 @@ MIT License. Consulte `LICENSE`.
 
 ---
 
-Se você quiser, posso **gerar uma versão final do README já com GIFs e screenshots reais simulados**, prontos para colocar na pasta `docs/`, deixando o projeto **visualmente profissional** no GitHub.
-
-Quer que eu faça isso também?
