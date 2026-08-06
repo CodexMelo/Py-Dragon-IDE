@@ -149,7 +149,7 @@
   <hr>
 
   <p align="center">
-    <a href="#comprar" class="[btn-primary]https://strexsoftware.com/produto-8.html">🛒 Comprar Agora - R$ 205,25</a>
+    <a href="#comprar" class="[btn-primary]https://strexsoftware.com/produto-8.html]">🛒 Comprar Agora - R$ 205,25</a>
   </p>
   <p align="center">
     <small>🐉 <strong>Py Dragon Studio IDE</strong> — feito com dedicação, propósito e Python.</small>
